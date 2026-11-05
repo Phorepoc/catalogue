@@ -34,6 +34,16 @@ Leave `-arch arm` out for the PC. The components are:
 **Installed as a package.** The SIS holds the app, its registration and its icon. Install it on an image that was built
 without Catalogue, or on an older Nokia Symbian^3 phone (below).
 
+**Added to an image build.** Every release also has `catalogue-arm-addon.tar.gz` and `catalogue-x32-addon.tar.gz`: the built
+files laid out by their image path (`sys/bin/...`, `resource/apps/...`, `private/10003a3f/apps/...`) with a manifest that
+names the architecture and the pdk and core commits they were built against. Add one to an existing build of an image of
+the same architecture, built without Catalogue (`-O rom-exclude=<its key>` if the base has it):
+
+    phe image rom -b <board> -O addon=/build/addon/catalogue-arm-addon.tar.gz
+
+The archive has to be reachable from the toolchain container (the build volume). `phe image addon -arch arm catalogue`
+makes one from a local build.
+
 ## Older Symbian phones
 
 `catalogue-arm.sis` is an ARM build for the Symbian^3 platform, so it also installs on the older Nokia Symbian^3 phones
