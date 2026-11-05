@@ -1,0 +1,7 @@
+catalogue: Catalogue, the Phorepoc OS software store
+Copyright The Phorepoc Authors (see AUTHORS)
+
+Phorepoc was founded by Kyriakos Bompotis.
+
+All files are licensed under the Apache License 2.0 (LICENSE, LICENSES/Apache-2.0.txt). The app is our own code. It is
+built against the Symbian platform headers and libraries of the build it is part of, none of which are copied here.
