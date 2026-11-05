@@ -28,7 +28,7 @@ jobs:
       - name: The pdk's release scripts
         run: |
           for f in next_version.sh commit_lint.sh; do
-            curl -fsSL -o "/tmp/$f" "https://raw.githubusercontent.com/${{ github.repository_owner }}/pdk/b7c336dfbf2b99d51b62384fb25208c4d7c0af32/tools/ci/$f"
+            curl -fsSL -o "/tmp/$f" "https://raw.githubusercontent.com/${{ github.repository_owner }}/pdk/bd510c9de6451b4a03a44b22f66a514f7e13cc85/tools/ci/$f"
           done
       - name: Conventional Commit subjects
         if: github.event_name == 'push'
@@ -42,7 +42,7 @@ jobs:
 
   package:
     needs: version
-    uses: Phorepoc/pdk/.github/workflows/package.yml@b7c336dfbf2b99d51b62384fb25208c4d7c0af32
+    uses: Phorepoc/pdk/.github/workflows/package.yml@bd510c9de6451b4a03a44b22f66a514f7e13cc85
     with:
       version: ${{ needs.version.outputs.version }}
     permissions:
