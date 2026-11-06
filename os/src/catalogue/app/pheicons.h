@@ -50,6 +50,13 @@ private:
 	TBool iNetDown;
 	TInt iTries;                // fetch attempts for the row being loaded
 	TInt iDone;
+	// the decoded, scaled icons of this run by URL hash: a page change rebuilds its rows, and their icons come back at
+	// once (a duplicate handle of the same bitmap) instead of a PNG decode each, one after another
+	struct TCached { TUint32 iHash; CFbsBitmap* iIcon; CFbsBitmap* iMask; };
+	RArray<TCached> iCache;
+	static TUint32 Hash(const TDesC8& aUrl);
+	TBool FromCache(TInt aRow);
+	void Remember(const TDesC8& aUrl, const CFbsBitmap* aIcon, const CFbsBitmap* aMask);
 	};
 
 #endif

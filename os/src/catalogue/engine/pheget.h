@@ -64,6 +64,8 @@ public:
 	// Fetches a file (URL or local path) into aFile, through a temporary name; returns the error (KErrNone = done).
 	TInt FetchFileL(const TDesC& aLocation, const TDesC& aFile);
 	void ResetIndexes() { iIndexes.ResetAndDestroy(); }    // (a refresh; invalidates every TPheGetItem)
+	TInt IndexCount() const { return iIndexes.Count(); }   // the loaded indexes' top objects (categories, banner)
+	const CPheJson& Index(TInt aIndex) const { return *iIndexes[aIndex]; }
 	// The items that fit this device (all items with aAll), first index first; an id seen earlier wins.
 	void ItemsL(RArray<TPheGetItem>& aItems, TBool aAll);
 	TBool FindL(const TDesC8& aId, TPheGetItem& aItem);

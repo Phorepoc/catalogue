@@ -73,6 +73,7 @@ public:
 	~CPheStoreAppUi()
 		{
 		delete iExitTimer;
+		delete iRetryTimer;
 		delete iAddSource;
 		delete iSearch;
 		delete iTagFilter;
@@ -140,17 +141,17 @@ public:
 	// ---- the toolbar's tabs. Every tab is the same list over a different selection of the items (iScope): Home = all,
 	// Categories = the tags the listings carry (a tap on one lists its apps), Search = the items matching the words typed
 	// into the Search dialog (name, summary, id, category, tags), My apps = the items that are installed
-	enum TScope { EScopeAll, EScopeCategories, EScopeTag, EScopeSearch, EScopeMine };
+	enum TScope { EScopeCategories, EScopeAll, EScopeTag, EScopeSearch, EScopeMine };   // (Home first: the start page)
 	static TInt TabOfScope(TInt aScope)
 		{
-		return aScope == EScopeAll ? 0 : (aScope == EScopeCategories || aScope == EScopeTag) ? 1 : aScope == EScopeSearch ? 2 : 3;
+		return (aScope == EScopeCategories || aScope == EScopeTag) ? 0 : aScope == EScopeAll ? 1 : aScope == EScopeSearch ? 2 : 3;
 		}
 	void UiTab(TInt aTab)
 		{
 		switch (aTab)
 			{
-		case 0: SetScope(EScopeAll); break;
-		case 1: SetScope(EScopeCategories); break;
+		case 0: SetScope(EScopeCategories); break;
+		case 1: SetScope(EScopeAll); break;
 		case 2:
 			if (!iSearch->IsActive())
 				iSearch->CallBack();                   // out of the pointer event: the dialog runs a nested loop
@@ -160,12 +161,7 @@ public:
 		}
 	void UiTabBack()
 		{
-		if (iScope == EScopeTag)
-			{
-			SetScope(EScopeCategories);
-			return;
-			}
-		SetScope(EScopeAll);
+		SetScope(EScopeCategories);                    // a category's apps and every other page: back to Home
 		}
 	static TInt SearchCb(TAny* aSelf)
 		{
@@ -201,12 +197,15 @@ public:
 		switch (iScope)
 			{
 		case EScopeCategories:
-			title.Copy(_L("Categories"));
-			empty.Set(_L("No categories yet"));
+			title.Copy(_L("Catalogue"));
+			empty.Set(_L("No apps for this device yet"));
+			break;
+		case EScopeAll:
+			title.Copy(_L("All apps"));
 			break;
 		case EScopeTag:
 			if (iTagFilter)
-				TagName(title, *iTagFilter);
+				CategoryName(title, *iTagFilter);
 			empty.Set(_L("No apps in this category"));
 			break;
 		case EScopeSearch:
@@ -223,6 +222,61 @@ public:
 			break;
 			}
 		iView->SetPage(title, empty);
+		SetBanner();
+		}
+	// Home's welcome banner: the index's "banner" (title, text), else Catalogue's own words
+	void SetBanner()
+		{
+		if (iScope != EScopeCategories)
+			{
+			iView->SetBanner(KNullDesC, KNullDesC);
+			return;
+			}
+		TBuf<64> title(_L("Welcome to Catalogue"));
+		TBuf<160> text(_L("Apps, codecs, engines and tools for your phone, from open source."));
+		for (TInt i = 0; i < iGet->IndexCount(); ++i)
+			{
+			const CPheJson* b = iGet->Index(i).Get(_L8("banner"));
+			if (!b || b->Type() != CPheJson::EObject)
+				continue;
+			const CPheJson* t = b->Get(_L8("title"));
+			const CPheJson* x = b->Get(_L8("text"));
+			if (t && t->Str().Length())
+				CnvUtfConverter::ConvertToUnicodeFromUtf8(title, t->Str().Left(60));
+			if (x && x->Str().Length())
+				CnvUtfConverter::ConvertToUnicodeFromUtf8(text, x->Str().Left(150));
+			break;
+			}
+		iView->SetBanner(title, text);
+		}
+	// a category of the index ("categories": tag, name, icon_url), or NULL (an older index: the tag itself)
+	const CPheJson* Category(const TDesC8& aTag) const
+		{
+		for (TInt i = 0; i < iGet->IndexCount(); ++i)
+			{
+			const CPheJson* c = iGet->Index(i).Get(_L8("categories"));
+			if (!c || c->Type() != CPheJson::EArray)
+				continue;
+			for (TInt k = 0; k < c->Count(); ++k)
+				{
+				const CPheJson* t = c->At(k).Get(_L8("tag"));
+				if (t && t->Str().CompareF(aTag) == 0)
+					return &c->At(k);
+				}
+			}
+		return NULL;
+		}
+	void CategoryName(TDes& aOut, const TDesC8& aTag) const
+		{
+		const CPheJson* c = Category(aTag);
+		const CPheJson* n = c ? c->Get(_L8("name")) : NULL;
+		if (n && n->Str().Length())
+			{
+			aOut.Zero();
+			CnvUtfConverter::ConvertToUnicodeFromUtf8(aOut, n->Str().Left(40));
+			}
+		else
+			TagName(aOut, aTag);
 		}
 	static void TagName(TDes& aOut, const TDesC8& aTag)       // a tag as the list shows it: the first letter capital
 		{
@@ -355,10 +409,12 @@ public:
 	void AddTagRowL(TInt aTag)
 		{
 		TBuf<48> name;
-		TagName(name, *iTagNames[aTag]);
+		CategoryName(name, *iTagNames[aTag]);
 		TBuf<32> info;
 		info.Format(iTagCounts[aTag] == 1 ? _L("%d app") : _L("%d apps"), iTagCounts[aTag]);
-		iView->AddRowL(name, info, KNullDesC, TPheRow::EPlain, KNullDesC8);
+		const CPheJson* c = Category(*iTagNames[aTag]);
+		const CPheJson* icon = c ? c->Get(_L8("icon_url")) : NULL;
+		iView->AddRowL(name, info, KNullDesC, TPheRow::EPlain, icon ? icon->Str() : KNullDesC8);
 		}
 	void UiBack()
 		{
@@ -628,7 +684,12 @@ private:
 		TBool changed = aResult == 1;
 		RDebug::Printf("PH: [phestore] TIMING refresh %s (%d) at %d ms", err == KErrNone ? (changed ? "changed" : "unchanged") : "failed", err, Since());
 		if (err == KErrNone)
+			{
 			iLoader->NetworkChanged();
+			iRetries = 0;
+			}
+		else
+			RetryLater();
 		if (err == KErrNone && (changed || iItems.Count() == 0))
 			{
 			iFresh = ETrue;
@@ -650,6 +711,38 @@ private:
 			}
 		else
 			iView->SetLoad(CPheCatalogueView::EReady, KNullDesC);
+		}
+
+	// a refresh that failed (at start the WLAN is often not joined yet) runs again after 5, 15 and 45 s
+	void RetryLater()
+		{
+		if (iRetries >= 3)
+			return;
+		if (!iRetryTimer)
+			{
+			TRAPD(e, iRetryTimer = CPeriodic::NewL(CActive::EPriorityLow));
+			if (e != KErrNone)
+				return;
+			}
+		iRetryTimer->Cancel();
+		TInt s = 5;
+		for (TInt i = 0; i < iRetries; ++i)
+			s *= 3;
+		++iRetries;
+		iRetryTimer->Start(s * 1000000, s * 1000000, TCallBack(RetryCb, this));
+		}
+	static TInt RetryCb(TAny* aSelf)
+		{
+		CPheStoreAppUi* self = static_cast<CPheStoreAppUi*>(aSelf);
+		self->iRetryTimer->Cancel();
+		if (self->iPhase == EPhaseIdle)
+			{
+			self->iPhase = EPhaseRefresh;
+			self->Schedule();
+			}
+		else
+			self->iNextAfterBuild = EPhaseRefresh;
+		return 0;
 		}
 
 	// reload the indexes from their (fresh) caches and rebuild the rows, keeping the scroll position
@@ -677,6 +770,7 @@ private:
 			iItems.Reset();
 		ComputeVisible();
 		iView->ClearRows();
+		SetBanner();                                   // (the index may have one now)
 		iBuilt = 0;
 		}
 
@@ -908,6 +1002,8 @@ private:
 	CPheIconLoader* iLoader;
 	CIdle* iWork;
 	CPeriodic* iExitTimer;
+	CPeriodic* iRetryTimer;                            // a failed refresh tries again (the network may come up later)
+	TInt iRetries;
 	CPheJob* iRefreshJob;
 	RArray<TPheGetItem> iItems;
 	TInt iPhase;

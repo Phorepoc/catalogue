@@ -11,7 +11,8 @@
 
 extern TInt PheStoreSince();
 _LIT(KIconDir, "c:\\data\\pheget\\icons\\");
-static const TInt KGapMs = 100;                // between two icons
+static const TInt KGapMs = 10;                 // between two icons (the loader runs at low priority: a touch goes first anyway)
+static const TInt KCacheMax = 64;              // decoded icons kept
 static const TInt KMovingMs = 150;             // wait while the list moves
 
 static TBool IsUrl(const TDesC8& aLocation)
@@ -47,6 +48,12 @@ CPheIconLoader::~CPheIconLoader()
 	Cancel();
 	delete iJob;
 	Drop();
+	for (TInt i = 0; i < iCache.Count(); ++i)
+		{
+		delete iCache[i].iIcon;
+		delete iCache[i].iMask;
+		}
+	iCache.Close();
 	iTimer.Close();
 	iFs.Close();
 	}
@@ -82,12 +89,74 @@ void CPheIconLoader::Schedule(TInt aMs)
 	SetActive();
 	}
 
-// the cache file of an icon: a hash of its URL
-void CPheIconLoader::CachePath(const TDesC8& aUrl, TDes& aPath)
+TUint32 CPheIconLoader::Hash(const TDesC8& aUrl)
 	{
 	TUint32 h = 2166136261u;
 	for (TInt i = 0; i < aUrl.Length(); ++i)
 		h = (h ^ aUrl[i]) * 16777619u;
+	return h;
+	}
+
+static CFbsBitmap* DupL(const CFbsBitmap* aSrc)
+	{
+	if (!aSrc)
+		return NULL;
+	CFbsBitmap* b = new (ELeave) CFbsBitmap;
+	TInt err = b->Duplicate(aSrc->Handle());
+	if (err != KErrNone)
+		{
+		delete b;
+		User::Leave(err);
+		}
+	return b;
+	}
+
+// a row whose icon this run already decoded: give it a duplicate at once
+TBool CPheIconLoader::FromCache(TInt aRow)
+	{
+	TUint32 h = Hash(iView.RowIconUrl(aRow));
+	for (TInt i = 0; i < iCache.Count(); ++i)
+		if (iCache[i].iHash == h)
+			{
+			CFbsBitmap* icon = NULL;
+			CFbsBitmap* mask = NULL;
+			TRAPD(err, icon = DupL(iCache[i].iIcon); mask = DupL(iCache[i].iMask));
+			if (err != KErrNone)
+				{
+				delete icon;
+				return EFalse;
+				}
+			iView.SetIcon(aRow, icon, mask);
+			return ETrue;
+			}
+	return EFalse;
+	}
+
+void CPheIconLoader::Remember(const TDesC8& aUrl, const CFbsBitmap* aIcon, const CFbsBitmap* aMask)
+	{
+	TCached c;
+	c.iHash = Hash(aUrl);
+	c.iIcon = NULL;
+	c.iMask = NULL;
+	TRAPD(err, c.iIcon = DupL(aIcon); c.iMask = DupL(aMask));
+	if (err != KErrNone || iCache.Append(c) != KErrNone)
+		{
+		delete c.iIcon;
+		delete c.iMask;
+		return;
+		}
+	if (iCache.Count() > KCacheMax)
+		{
+		delete iCache[0].iIcon;
+		delete iCache[0].iMask;
+		iCache.Remove(0);
+		}
+	}
+
+// the cache file of an icon: a hash of its URL
+void CPheIconLoader::CachePath(const TDesC8& aUrl, TDes& aPath)
+	{
+	TUint32 h = Hash(aUrl);
 	aPath = KIconDir;
 	aPath.AppendNumFixedWidth(h, EHex, 8);
 	aPath.Append(_L(".png"));
@@ -135,6 +204,11 @@ void CPheIconLoader::RunL()
 		iView.EvictFarIcons();
 		iState = EIdle;
 		return;                                         // nothing to do until the next Kick
+		}
+	if (FromCache(row))
+		{
+		Schedule(0);
+		return;
 		}
 	iRow = row;
 	iTries = 0;
@@ -268,6 +342,7 @@ void CPheIconLoader::FinishDecodeL()
 		CleanupStack::Pop(mask);
 		}
 	CleanupStack::Pop(icon);
+	Remember(iView.RowIconUrl(iRow), icon, mask);
 	iView.SetIcon(iRow, icon, mask);
 	++iDone;
 	if (iDone <= 3 || iDone == 12)

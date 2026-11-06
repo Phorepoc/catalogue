@@ -3,10 +3,19 @@
 
 // pheui.cpp -- OURS: see pheui.h
 #include "pheui.h"
+#include <hal.h>
 #include <e32math.h>
 #include <eikenv.h>
 #include <coemain.h>
 #include <w32std.h>
+
+static TInt FastFreq()
+	{
+	static TInt f = 0;
+	if (!f && (HAL::Get(HAL::EFastCounterFrequency, f) != KErrNone || f <= 0))
+		f = 1000000;
+	return f;
+	}
 
 // ---- palette
 static const TRgb KPage(0xf1, 0xf1, 0xf1);
@@ -20,7 +29,7 @@ static const TRgb KDivider(0xd9, 0xd9, 0xd9);
 static const TRgb KWhite(0xff, 0xff, 0xff);
 
 static const TInt KPressDelayMs = 150;
-static const TInt KTickUs = 33000;
+static const TInt KTickUs = 16000;           // 60 frames a second while something moves (a frame renders in ~9 ms)
 static const TInt KIconWindow = 15;          // rows each side of the viewport that may hold an icon
 static const TInt KKeepWindow = 30;
 
@@ -78,6 +87,8 @@ CPheCatalogueView::~CPheCatalogueView()
 	delete iLoadMsg;
 	delete iPageTitle;
 	delete iPageEmpty;
+	delete iBannerTitle;
+	delete iBannerText;
 	delete iDTitle;
 	delete iDMeta;
 	delete iDBody;
@@ -245,13 +256,90 @@ void CPheCatalogueView::SetLoad(TLoad aLoad, const TDesC& aMessage)
 	Redraw();
 	}
 
+// the frame cost, logged every 60 frames: render (into iFrame) and the push to the screen (DrawNow), mean and worst
+static TInt64 FastUs()
+	{
+	return TInt64(User::FastCounter()) * 1000000 / FastFreq();
+	}
+void CPheCatalogueView::SetBanner(const TDesC& aTitle, const TDesC& aText)
+	{
+	delete iBannerTitle;
+	iBannerTitle = aTitle.Alloc();
+	delete iBannerText;
+	iBannerText = aText.Alloc();
+	iPad = (iBannerTitle && iBannerTitle->Length()) ? Sc(148) : 0;
+	}
+
+// word-wrapped text from the top aY (advanced past the last line), lines broken at spaces within aWidth
+void CPheCatalogueView::DrawWrapped(const TDesC& aText, const CFont& aFont, TInt aX, TInt& aY, TInt aWidth, TRgb aColour)
+	{
+	TInt lineH = aFont.HeightInPixels() + Sc(3);
+	TInt asc = aFont.AscentInPixels();
+	TPtrC rest(aText);
+	while (rest.Length() > 0)
+		{
+		TInt fit = aFont.TextCount(rest, aWidth);
+		if (fit <= 0)
+			fit = 1;
+		TInt cut = fit;
+		if (fit < rest.Length())
+			{
+			TInt sp = rest.Left(fit + 1).LocateReverse(' ');
+			if (sp > 0)
+				cut = sp;
+			}
+		Text(rest.Left(cut), aFont, aX, aY + asc, aColour);
+		aY += lineH;
+		rest.Set(rest.Mid(cut));
+		while (rest.Length() > 0 && rest[0] == ' ')
+			rest.Set(rest.Mid(1));
+		}
+	}
+
+// the welcome banner on the home page: a dark card, the title, a line or two of text (no picture: it is there at once)
+void CPheCatalogueView::DrawBanner(TInt aY)
+	{
+	TInt w = Rect().Width();
+	TRect card(iMargin, aY + iMargin, w - iMargin, aY + iPad - Sc(4));
+	iFrameGc->SetPenStyle(CGraphicsContext::ENullPen);
+	iFrameGc->SetBrushStyle(CGraphicsContext::ESolidBrush);
+	iFrameGc->SetBrushColor(TRgb(0x26, 0x26, 0x26));
+	iFrameGc->DrawRoundRect(card, TSize(Sc(12), Sc(12)));
+	iFrameGc->SetBrushColor(TRgb(0x1d, 0x6f, 0xd6));          // the Catalogue blue, a strip on the left
+	iFrameGc->DrawRect(TRect(card.iTl.iX, card.iTl.iY + Sc(16), card.iTl.iX + Sc(5), card.iBr.iY - Sc(16)));
+	iFrameGc->SetBrushStyle(CGraphicsContext::ENullBrush);
+	iFrameGc->SetPenStyle(CGraphicsContext::ESolidPen);
+	TInt x = card.iTl.iX + Sc(20);
+	TInt tw = card.Width() - Sc(40);
+	TInt y = card.iTl.iY + Sc(18);
+	DrawWrapped(*iBannerTitle, *iFHeader, x, y, tw, KWhite);
+	y += Sc(6);
+	if (iBannerText)
+		DrawWrapped(*iBannerText, *iFInfo, x, y, tw, TRgb(0xcf, 0xcf, 0xcf));
+	}
+
 void CPheCatalogueView::Redraw()
 	{
 	if (!iFrame)
 		return;
+	TInt64 t0 = FastUs();
 	Render();
+	TInt64 t1 = FastUs();
 	if (IsActivated() && IsVisible())
 		DrawNow();
+	TInt64 t2 = FastUs();
+	TInt r = TInt(t1 - t0), d = TInt(t2 - t1);
+	iPerfR += r;
+	iPerfD += d;
+	iPerfRMax = Max(iPerfRMax, r);
+	iPerfDMax = Max(iPerfDMax, d);
+	if (++iPerfN == 60)
+		{
+		RDebug::Printf("PH: [phestore] TIMING frame: render %d us (max %d), draw %d us (max %d) over 60", TInt(iPerfR / 60), iPerfRMax, TInt(iPerfD / 60), iPerfDMax);
+		iPerfN = 0;
+		iPerfR = iPerfD = 0;
+		iPerfRMax = iPerfDMax = 0;
+		}
 	}
 
 // ---- details data
@@ -382,7 +470,7 @@ TInt CPheCatalogueView::ContentHeight() const
 		return iDContentH;
 	if (iMode == ESources)
 		return iSrc.Count() * iSrcRowH + Sc(40);      // (room for the status line)
-	return iRows.Count() * iRowH + Sc(8);
+	return iPad + iRows.Count() * iRowH + Sc(8);
 	}
 
 TInt CPheCatalogueView::MaxOffset() const
@@ -413,13 +501,16 @@ TInt CPheCatalogueView::RowAt(TInt aY) const
 		}
 	if (iMode != EList || aY < iHeaderH || aY >= ViewH() || iRowH <= 0)
 		return -1;
-	TInt r = (aY - iHeaderH + iOffset) / iRowH;
+	TInt y = aY - iHeaderH + iOffset - iPad;
+	if (y < 0)
+		return -1;                                  // the banner
+	TInt r = y / iRowH;
 	return (r >= 0 && r < iRows.Count()) ? r : -1;
 	}
 
 void CPheCatalogueView::EnsureVisible(TInt aRow)
 	{
-	TInt top = aRow * Stride();
+	TInt top = ListPad() + aRow * Stride();
 	TInt viewH = ViewH() - iHeaderH;
 	if (top < iOffset)
 		ScrollTo(top);
@@ -439,8 +530,8 @@ TInt CPheCatalogueView::PickIconRow() const
 	if (iMode != EList || iRows.Count() == 0 || iRowH <= 0)
 		return -1;
 	TInt viewH = ViewH() - iHeaderH;
-	TInt first = iOffset / iRowH;
-	TInt last = (iOffset + viewH) / iRowH;
+	TInt first = Max(0, iOffset - iPad) / iRowH;
+	TInt last = Max(0, iOffset + viewH - iPad) / iRowH;
 	TInt centre = (first + last) / 2;
 	// the visible rows first (nearest the middle), then the window around them
 	for (TInt d = 0; d <= (last - first) / 2 + KIconWindow; ++d)
@@ -470,7 +561,7 @@ void CPheCatalogueView::SetIcon(TInt aRow, CFbsBitmap* aIcon, CFbsBitmap* aMask)
 	r->iIcon = aIcon;
 	r->iMask = aMask;
 	r->iIconState = TPheRow::EReady;
-	TInt y = iHeaderH + aRow * iRowH - iOffset;
+	TInt y = iHeaderH + iPad + aRow * iRowH - iOffset;
 	if (iMode == EList && y + iRowH > iHeaderH && y < ViewH() && !Moving())
 		Redraw();
 	}
@@ -485,7 +576,7 @@ void CPheCatalogueView::EvictFarIcons()
 	{
 	if (iRowH <= 0)
 		return;
-	TInt centre = (iOffset + (ViewH() - iHeaderH) / 2) / iRowH;
+	TInt centre = Max(0, iOffset - iPad + (ViewH() - iHeaderH) / 2) / iRowH;
 	for (TInt i = 0; i < iRows.Count(); ++i)
 		{
 		TPheRow* r = iRows[i];
@@ -678,8 +769,21 @@ void CPheCatalogueView::DrawRow(TInt aRow, TInt aY, TBool aPressed)
 		iFrameGc->SetPenSize(TSize(1, 1));
 		TInt rxp = cx - Sc(20);
 		TInt top = aY + Sc(14);
-		TextClipped(*row.iName, *iFTitle, iMargin, top + iAscTitle, rxp - iMargin, tc);
-		TextClipped(*row.iInfo, *iFInfo, iMargin, top + iFTitle->HeightInPixels() + Sc(2) + iAscInfo, rxp - iMargin, sc);
+		TInt lx = iMargin;
+		if (row.iIconUrl->Length())                   // a category with its icon
+			{
+			TPoint ip(Sc(8), aY + (iRowH - iIconPx) / 2);
+			if (row.iIcon && row.iIcon->Handle())
+				{
+				if (row.iMask)
+					iFrameGc->BitBltMasked(ip, row.iIcon, TRect(row.iIcon->SizeInPixels()), row.iMask, EFalse);
+				else
+					iFrameGc->BitBlt(ip, row.iIcon);
+				}
+			lx = Sc(8) + iIconPx + Sc(16);
+			}
+		TextClipped(*row.iName, *iFTitle, lx, top + iAscTitle, rxp - lx, tc);
+		TextClipped(*row.iInfo, *iFInfo, lx, top + iFTitle->HeightInPixels() + Sc(2) + iAscInfo, rxp - lx, sc);
 		return;
 		}
 	// icon (or its placeholder)
@@ -947,13 +1051,15 @@ void CPheCatalogueView::RenderList()
 	TInt h = ViewH();
 	TInt n = iRows.Count();
 	iRetryRect = TRect();
+	if (iPad > 0 && iOffset < iPad)
+		DrawBanner(iHeaderH - iOffset);
 	if (n > 0)
 		{
-		TInt first = Max(0, iOffset / iRowH);
-		TInt last = Min(n - 1, (iOffset + h - iHeaderH) / iRowH);
+		TInt first = Max(0, (iOffset - iPad) / iRowH);
+		TInt last = Min(n - 1, Max(0, iOffset + h - iHeaderH - iPad) / iRowH);
 		for (TInt i = first; i <= last; ++i)
 			{
-			TInt y = iHeaderH + i * iRowH - iOffset;
+			TInt y = iHeaderH + iPad + i * iRowH - iOffset;
 			TBool pressed = (iDown && iShowPressed && !iDragging && i == iPressRow) || iFlash && i == iPressRow || (iSelShown && i == iSel);
 			DrawRow(i, y, pressed);
 			if (i != n - 1 && !pressed)

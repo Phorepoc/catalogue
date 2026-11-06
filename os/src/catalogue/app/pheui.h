@@ -79,6 +79,7 @@ public:
 	void UpdateRow(TInt aRow, TInt aState);
 	TInt RowCount() const { return iRows.Count(); }
 	void SetPage(const TDesC& aTitle, const TDesC& aEmpty);   // the list's header and what it says with no rows
+	void SetBanner(const TDesC& aTitle, const TDesC& aText);  // a welcome banner above the rows ("" = none)
 	void SelectTab(TInt aTab);                      // light a tab without asking the application (it already switched)
 	void SetLoad(TLoad aLoad, const TDesC& aMessage);   // ELoading with rows = the small header spinner
 	void Redraw();
@@ -129,6 +130,8 @@ private:
 	TInt RowAt(TInt aY) const;                      // the row under a view y, or -1
 	void ScrollTo(TInt aOffset);
 	void EnsureVisible(TInt aRow);
+	TInt ListPad() const { return iMode == EList ? iPad : 0; }   // the banner above the first row
+	void DrawBanner(TInt aY);
 	TInt Stride() const { return iMode == ESources ? iSrcRowH : iRowH; }   // the row height of the page shown
 
 	// drawing
@@ -205,6 +208,11 @@ private:
 	CFbsBitmapDevice* iShownDev;
 	CFbsBitGc* iShownGc;
 	TBool iPainted;
+	HBufC* iBannerTitle;
+	HBufC* iBannerText;
+	TInt iPad;                  // the banner's height (0 = none)
+	TInt64 iPerfR, iPerfD;      // the frame cost log (Redraw)
+	TInt iPerfRMax, iPerfDMax, iPerfN;
 
 	// scrolling
 	TInt iOffset;               // pixels scrolled down (list or details)
