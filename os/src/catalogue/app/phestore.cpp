@@ -875,7 +875,10 @@ private:
 			meta.Append('\n');
 			meta.Append(tmp);
 			}
-		TPtrC8 desc8 = j.GetStr(_L8("description"));
+		// the index's plain-text rendering of the authors' Markdown (this view draws no Markdown); older indexes have none
+		TPtrC8 desc8 = j.GetStr(_L8("description_plain"));
+		if (desc8.Length() == 0)
+			desc8.Set(j.GetStr(_L8("description")));
 		if (desc8.Length() == 0)
 			desc8.Set(it.Summary());
 		HBufC* desc = CnvUtfConverter::ConvertToUnicodeFromUtf8L(desc8);
