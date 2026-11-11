@@ -791,6 +791,43 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 		Log(_L8("%S: no approved release"), &id);
 		return KErrNotFound;
 		}
+	// "requires" (the listing's ids that must be installed first, e.g. the Hildon demo -> Hildon -> GLib, GTK, D-Bus): each one
+	// not recorded as installed is installed first, depth first, so SWI finds every dependency of the package in place
+	const CPheJson* req = aItem.iItem ? aItem.iItem->Get(_L8("requires")) : NULL;
+	if (req && req->Type() == CPheJson::EArray)
+		{
+		if (iDepth >= 8)
+			{
+			Log(_L8("%S: requires nest too deep"), &id);
+			return KErrTooBig;
+			}
+		for (TInt i = 0; i < req->Count(); ++i)
+			{
+			TPtrC8 rid = req->At(i).Str();
+			TBuf8<64> have;
+			InstalledTagL(rid, have);
+			if (have.Length())
+				continue;
+			TPheGetItem dep;
+			if (!FindL(rid, dep))
+				{
+				Log(_L8("%S needs %S, which no loaded index lists"), &id, &rid);
+				return KErrNotFound;
+				}
+			Log(_L8("%S needs %S: installing it first"), &id, &rid);
+			++iDepth;
+			TInt derr = KErrNone;
+			TRAPD(leave, derr = InstallL(dep, aDrive));
+			--iDepth;
+			if (leave != KErrNone)
+				derr = leave;
+			if (derr != KErrNone)
+				{
+				Log(_L8("%S: its requirement %S failed (%d)"), &id, &rid, derr);
+				return derr;
+				}
+			}
+		}
 	const CPheJson& rel = *aItem.iRelease;
 	TPtrC8 asset = rel.GetStr(_L8("asset"));
 	TPtrC8 url = rel.GetStr(_L8("url"));

@@ -116,6 +116,7 @@ private:
 	RPointerArray<CPheJson> iIndexes;
 	HBufC8* iInstalledText;                    // installed.txt, read once (InstalledTagL)
 	TBool iInstalledLoaded;
+	TInt iDepth;                               // InstallL's "requires" recursion
 
 	// network (opened on the first HTTP fetch)
 	TBool iNetOpen;
