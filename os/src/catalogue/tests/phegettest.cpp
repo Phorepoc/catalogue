@@ -119,6 +119,15 @@ static TInt SourceCount(CPheGet& aGet)
 	return n;
 	}
 
+static void TestVersions()
+	{
+	CHECK(CPheGet::CompareVersions(_L8("2026.11.10.165459"), _L8("2026.11.10.165459")) == 0);
+	CHECK(CPheGet::CompareVersions(_L8("2026.11.06.040000"), _L8("2026.11.10.165459")) < 0);
+	CHECK(CPheGet::CompareVersions(_L8("2026.11.11.072758"), _L8("2026.11.10.165459")) > 0);
+	CHECK(CPheGet::CompareVersions(_L8("2026.11.10"), _L8("2026.11.10.165459")) < 0);   // a missing field is 0
+	CHECK(CPheGet::CompareVersions(_L8("1.10"), _L8("1.9")) > 0);                       // numbers, not text
+	}
+
 static void TestValidation()
 	{
 	CHECK(CPheGet::ValidSource(_L("http://example.org/index.json")));
@@ -295,6 +304,7 @@ static TInt RunL()
 	CleanupStack::PushL(saved);
 	fs.Delete(KIndexes);
 
+	TestVersions();
 	TestValidation();
 	TObs obs;
 	CPheGet* get = CPheGet::NewL(obs);

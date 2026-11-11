@@ -437,7 +437,28 @@ public:
 			iMineDirty = EFalse;
 			if (iScope == EScopeMine)
 				SetScope(EScopeMine);
+			else
+				RefreshRowStates();
 			}
+		}
+	// an install can change more rows than the one opened: a chain install (requires) installs the listings below it
+	// too, so every built item row takes its state from the install record again (a category's list showed "Free"
+	// for GLib/GTK just installed by the Hildon demo's chain)
+	void RefreshRowStates()
+		{
+		if (iScope == EScopeCategories)
+			return;
+		for (TInt r = 0; r < iBuilt && r < iVisible.Count() && r < iView->RowCount(); ++r)
+			{
+			const TPheGetItem& it = iItems[iVisible[r]];
+			TBuf8<32> installed;
+			TRAPD(err, iGet->InstalledTagL(it.Id(), installed));
+			TInt state = TPheRow::EFree;
+			if (err == KErrNone && installed.Length())
+				state = (installed == it.Tag()) ? TPheRow::EInstalled : TPheRow::EUpdate;
+			iView->UpdateRow(r, state);
+			}
+		iView->Redraw();
 		}
 	void UiAction(TInt /*aRow*/) { TRAP_IGNORE(InstallL()); }
 	void UiExit()
@@ -909,6 +930,11 @@ private:
 			button.Set(_L("Installed"));
 			on = EFalse;
 			}
+		else if (iGet->NeedsNewerSystemL(it))              // its min_core (or a requirement's) is above this image's core
+			{
+			button.Set(_L("Needs a newer system"));
+			on = EFalse;
+			}
 		else if (state == TPheRow::EUpdate)
 			button.Set(_L("Update"));
 		iView->ShowDetailsL(aRow, name, meta, *body, button, on);
@@ -949,7 +975,10 @@ private:
 		else
 			{
 			TBuf<64> msg;
-			msg.Format(_L("Install failed (%d)"), result);
+			if (result == KErrPheGetNeedsNewerSystem)
+				msg.Copy(_L("Needs a newer system"));
+			else
+				msg.Format(_L("Install failed (%d)"), result);
 			iView->SetDetailsStatus(msg, ETrue, -1);
 			iView->SetDetailsButton(_L("Try again"), ETrue);
 			}

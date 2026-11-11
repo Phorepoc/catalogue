@@ -6,7 +6,7 @@
 //
 //   pheget list [-all] [-index <url|path>] [-no-default]      the items that fit this device (-all: every item)
 //   pheget install <id> [-drive <c|e>] [-index ...] [-no-default]
-//   pheget device                                               the board / architecture the device reports
+//   pheget device                                               the board / architecture / core version the device reports
 //   pheget sources                                              the default index (on/off) and the added sources
 //   pheget add <url|path>  |  remove <n|url|path>               add / remove a software source (indexes.txt)
 //   pheget default on|off                                       the default Phorepoc index (off needs another source)
@@ -66,7 +66,7 @@ static TInt RunL()
 	TInt result = KErrNone;
 	if (verb == _L("device"))
 		{
-		RDebug::Printf("PH: [pheget] device board=%S arch=%S", &get->Board(), &get->Arch());
+		RDebug::Printf("PH: [pheget] device board=%S arch=%S core=%S", &get->Board(), &get->Arch(), &get->Core());
 		}
 	else if (verb == _L("sources"))
 		{

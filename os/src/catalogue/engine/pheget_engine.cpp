@@ -121,6 +121,8 @@ void CPheGet::ReadDeviceL()
 			iBoard = val.Left(iBoard.MaxLength());
 		else if (key == _L8("arch"))
 			iArch = val.Left(iArch.MaxLength());
+		else if (key == _L8("core"))
+			iCore = val.Left(iCore.MaxLength());
 		}
 	delete text;
 	}
@@ -827,6 +829,70 @@ TBool CPheGet::HashMatchesL(const TDesC& aFile, const TDesC8& aSha256Hex)
 	return ok;
 	}
 
+// ---- compatibility.min_core: the lowest core an item runs on. The pdk writes the image's core= into device.txt as its
+// core commit's UTC time, YYYY.MM.DD.HHMMSS; a listing names the first core with what it needs (e.g. the x32 loader's
+// PC-relative imports). An image that states no core checks nothing.
+
+static TPtrC8 MinCore(const CPheJson* aItem)
+	{
+	const CPheJson* compat = aItem ? aItem->Get(_L8("compatibility")) : NULL;
+	return compat ? compat->GetStr(_L8("min_core")) : TPtrC8();
+	}
+
+TInt CPheGet::CompareVersions(const TDesC8& aA, const TDesC8& aB)
+	{
+	TLex8 a(aA), b(aB);
+	while (!a.Eos() || !b.Eos())
+		{
+		TInt64 x = 0, y = 0;
+		while (!a.Eos() && a.Peek() != '.')
+			{
+			TChar c = a.Get();
+			if (c.IsDigit())
+				x = x * 10 + (TUint(c) - '0');
+			}
+		while (!b.Eos() && b.Peek() != '.')
+			{
+			TChar c = b.Get();
+			if (c.IsDigit())
+				y = y * 10 + (TUint(c) - '0');
+			}
+		if (x != y)
+			return x < y ? -1 : 1;
+		if (!a.Eos())
+			a.Inc();
+		if (!b.Eos())
+			b.Inc();
+		}
+	return 0;
+	}
+
+TBool CPheGet::NeedsNewerSystemL(const TPheGetItem& aItem)
+	{
+	if (iCore.Length() == 0)
+		return EFalse;
+	TPtrC8 min = MinCore(aItem.iItem);
+	if (min.Length() && CompareVersions(iCore, min) < 0)
+		return ETrue;
+	const CPheJson* req = aItem.iItem ? aItem.iItem->Get(_L8("requires")) : NULL;
+	if (!req || req->Type() != CPheJson::EArray || iDepth >= 8)
+		return EFalse;
+	TBool newer = EFalse;
+	for (TInt i = 0; i < req->Count() && !newer; ++i)
+		{
+		TBuf8<64> have;
+		InstalledTagL(req->At(i).Str(), have);
+		TPheGetItem dep;
+		if (have.Length() || !FindL(req->At(i).Str(), dep))
+			continue;
+		++iDepth;
+		TRAPD(err, newer = NeedsNewerSystemL(dep));
+		--iDepth;
+		User::LeaveIfError(err);
+		}
+	return newer;
+	}
+
 TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 	{
 	TPtrC8 id = aItem.Id();
@@ -834,6 +900,14 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 		{
 		Log(_L8("%S: no approved release"), &id);
 		return KErrNotFound;
+		}
+	// before anything is fetched or installed: the item and its whole requires chain must fit this image's core
+	if (iDepth == 0 && NeedsNewerSystemL(aItem))
+		{
+		TPtrC8 min = MinCore(aItem.iItem);
+		Log(_L8("%S: needs a newer system (this image has core %S; it or a listing it requires needs a newer core, %S)"),
+			&id, &iCore, &min);
+		return KErrPheGetNeedsNewerSystem;
 		}
 	// "requires" (the listing's ids that must be installed first, e.g. the Hildon demo -> Hildon -> GLib, GTK, D-Bus): each one
 	// not recorded as installed is installed first, depth first, so SWI finds every dependency of the package in place

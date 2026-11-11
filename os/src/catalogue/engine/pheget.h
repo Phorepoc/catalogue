@@ -22,6 +22,8 @@ _LIT(KPheGetDefaultIndex, "https://phorepoc.github.io/index/index.json");
 _LIT(KPheGetDeviceFile, "z:\\resource\\phorepoc\\device.txt");   // board=<name> / arch=<arm|x32>, from the adaptation
 _LIT(KPheGetDir, "c:\\data\\pheget\\");                          // indexes.txt (extra indexes), installed.txt
 _LIT(KPheGetDownloads, "c:\\data\\installs\\");                  // the package cache (prefill = offline installs)
+// InstallL's answer when a listing (or one it requires) names a compatibility.min_core above the image's core= (device.txt)
+const TInt KErrPheGetNeedsNewerSystem = -46201;
 
 // One item of an index (pointers into the loaded index tree; valid while the engine is).
 class TPheGetItem
@@ -74,6 +76,12 @@ public:
 	TInt InstallL(const TPheGetItem& aItem, TChar aDrive);
 	// The installed tag of an item (recorded by InstallL), or empty.
 	void InstalledTagL(const TDesC8& aId, TDes8& aTag);
+	// The image's core version (device.txt "core=", YYYY.MM.DD.HHMMSS from the pdk), or empty (unknown: nothing is checked).
+	const TDesC8& Core() const { return iCore; }
+	// ETrue when the item, or a listing it requires (not yet installed), has a compatibility.min_core above Core().
+	TBool NeedsNewerSystemL(const TPheGetItem& aItem);
+	// Dotted versions compared field by field as numbers ("2026.11.10.165459" < "2026.11.11"): <0, 0, >0.
+	static TInt CompareVersions(const TDesC8& aA, const TDesC8& aB);
 
 	// ---- software sources: c:\data\pheget\indexes.txt (the default Phorepoc index is not in it; "#default=off" there
 	// switches it off). Files are written atomically; the caches are named after their source, so removing a source
@@ -114,6 +122,7 @@ private:
 	RFs iFs;
 	TBuf8<32> iBoard;
 	TBuf8<16> iArch;
+	TBuf8<32> iCore;                           // device.txt core= (empty = unknown)
 	RPointerArray<CPheJson> iIndexes;
 	HBufC8* iInstalledText;                    // installed.txt, read once (InstalledTagL)
 	TBool iInstalledLoaded;
