@@ -220,7 +220,7 @@ void CPheGet::WriteSourcesL(const CDesCArray& aSources, TBool aDefaultOff)
 	TFileName target(KPheGetDir);
 	target.Append(KPheGetIndexesFile);
 	TFileName tmp(target);
-	tmp.Append(_L(".tmp"));
+	tmp.AppendFormat(_L(".%x.tmp"), (TUint)RProcess().Id().Id());
 	RFile f;
 	User::LeaveIfError(f.Replace(iFs, tmp, EFileWrite));
 	TInt r = f.Write(o);
@@ -380,7 +380,7 @@ TBool CPheGet::RefreshIndexesL(const TDesC& aExtra, TBool aNoDefault)
 		TFileName file, tmp;
 		IndexCachePath(file, (*locations)[i]);
 		tmp = file;
-		tmp.Append(_L(".tmp"));
+		tmp.AppendFormat(_L(".%x.tmp"), (TUint)RProcess().Id().Id());
 		TRAPD(r, FetchL((*locations)[i], tmp));
 		if (r != KErrNone)
 			{
@@ -475,7 +475,7 @@ void CPheGet::LoadIndexL(const TDesC& aLocation, TBool aCachedOnly)
 		if (!aCachedOnly)
 			{
 			TFileName tmp(file);
-			tmp.Append(_L(".tmp"));
+			tmp.AppendFormat(_L(".%x.tmp"), (TUint)RProcess().Id().Id());
 			FetchL(aLocation, tmp);
 			iFs.Delete(file);
 			iFs.Rename(tmp, file);
@@ -503,7 +503,7 @@ void CPheGet::LoadIndexL(const TDesC& aLocation, TBool aCachedOnly)
 TInt CPheGet::FetchFileL(const TDesC& aLocation, const TDesC& aFile)
 	{
 	TFileName tmp(aFile);
-	tmp.Append(_L(".tmp"));
+	tmp.AppendFormat(_L(".%x.tmp"), (TUint)RProcess().Id().Id());   // per process: two runs never share a file
 	TRAPD(r, FetchL(aLocation, tmp));
 	if (r != KErrNone)
 		{
@@ -601,7 +601,21 @@ void CPheGet::FetchL(const TDesC& aLocation, const TDesC& aFile)
 		}
 	HBufC8* url = HBufC8::NewLC(aLocation.Length());
 	url->Des().Copy(aLocation);
-	HttpGetL(*url, aFile);
+	// a transient failure (a stall the watchdog ended, a reset connection, a failed connect) is retried twice;
+	// a definite answer (404, a full disk) is not
+	for (TInt attempt = 1; ; ++attempt)
+		{
+		TRAPD(r, HttpGetL(*url, aFile));
+		if (r == KErrNone)
+			break;
+		TBool transient = r == KErrTimedOut || r == KErrDisconnected || r == KErrCouldNotConnect || r == KErrEof
+			|| r == KErrGeneral || r == KErrCommsLineFail || r == KErrNotReady;
+		if (!transient || attempt >= 3)
+			User::Leave(r);
+		iOut.Close();                          // (a leave inside HttpGetL can leave it open)
+		Log(_L8("http: attempt %d failed (%d), retrying"), attempt, r);
+		User::After(2000000);
+		}
 	CleanupStack::PopAndDestroy(url);
 	}
 
@@ -687,8 +701,20 @@ void CPheGet::HttpGetL(const TDesC8& aUrl, const TDesC& aFile)
 	t.Request().GetHeaderCollection().SetFieldL(pool.StringF(HTTP::EUserAgent, RHTTPSession::GetTable()), THTTPHdrVal(ua));
 	CleanupStack::PopAndDestroy(&ua);
 	t.SubmitL();
-	iWait.Start();                         // MHFRunL stops it on ESucceeded / EFailed
+	iTrans = t;
+	iTimedOut = EFalse;
+	iLastEvent = User::NTickCount();
+	// No HTTP event for KStallMs ends the fetch with KErrTimedOut (a download once hung for more than 9 minutes and
+	// held its file and the pheget process); FetchL retries it.
+	CPeriodic* watch = CPeriodic::NewL(CActive::EPriorityStandard);
+	CleanupStack::PushL(watch);
+	watch->Start(5000000, 5000000, TCallBack(WatchTick, this));
+	iWait.Start();                         // MHFRunL (or WatchTick) stops it
+	CleanupStack::PopAndDestroy(watch);
+	iTrans = RHTTPTransaction();
 	CleanupStack::PopAndDestroy(&t);
+	if (iTimedOut)
+		iHttpError = KErrTimedOut;
 	iOut.Close();
 	if (iHttpError == KErrNone && iStatus != 200)
 		iHttpError = (iStatus == 404) ? KErrNotFound : KErrGeneral;
@@ -700,8 +726,26 @@ void CPheGet::HttpGetL(const TDesC8& aUrl, const TDesC& aFile)
 		}
 	}
 
+TInt CPheGet::WatchTick(TAny* aSelf)
+	{
+	CPheGet* self = static_cast<CPheGet*>(aSelf);
+	const TUint32 KStallMs = 60000;
+	if (!self->iTimedOut && User::NTickCount() - self->iLastEvent > KStallMs)
+		{
+		self->iTimedOut = ETrue;
+		self->Log(_L8("http: no data for %d s, giving up on this attempt"), KStallMs / 1000);
+		self->iTrans.Cancel();
+		if (self->iWait.IsStarted())
+			self->iWait.AsyncStop();
+		}
+	return 1;
+	}
+
 void CPheGet::MHFRunL(RHTTPTransaction aTransaction, const THTTPEvent& aEvent)
 	{
+	iLastEvent = User::NTickCount();
+	if (iTimedOut)
+		return;                            // (cancelled: late events are ignored)
 	switch (aEvent.iStatus)
 		{
 		case THTTPEvent::EGotResponseHeaders:
@@ -851,7 +895,21 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 		Log(_L8("%S %S: downloading %S"), &id, &tag, &url);
 		HBufC* url16 = HBufC::NewLC(url.Length());
 		url16->Des().Copy(url);
-		FetchL(*url16, file);
+		// into a name of this process's own: two pheget runs (the app and the command line) never share an open file
+		// (the second one got KErrInUse while the first one's download hung)
+		TFileName part(file);
+		part.AppendFormat(_L(".%x.part"), (TUint)RProcess().Id().Id());
+		TRAPD(fr, FetchL(*url16, part));
+		if (fr == KErrNone)
+			{
+			iFs.Delete(file);
+			fr = iFs.Rename(part, file);
+			}
+		if (fr != KErrNone)
+			{
+			iFs.Delete(part);
+			User::Leave(fr);
+			}
 		CleanupStack::PopAndDestroy(url16);
 		if (!HashMatchesL(file, sha))
 			{

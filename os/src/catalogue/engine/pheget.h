@@ -105,6 +105,7 @@ private:
 	void HttpGetL(const TDesC8& aUrl, const TDesC& aFile);
 	void OpenNetworkL();
 	TInt StartConnection();
+	static TInt WatchTick(TAny* aSelf);       // the stalled-download watchdog
 	TBool HashMatchesL(const TDesC& aFile, const TDesC8& aSha256Hex);
 	void RecordInstalledL(const TDesC8& aId, const TDesC8& aTag);
 	void Log(TRefByValue<const TDesC8> aFmt, ...);
@@ -132,6 +133,9 @@ private:
 	TInt iStatus;
 	TInt iDone;
 	TInt iTotal;
+	RHTTPTransaction iTrans;                   // (for the watchdog's cancel)
+	TUint32 iLastEvent;                        // User::NTickCount() of the last HTTP event
+	TBool iTimedOut;
 	};
 
 #endif
