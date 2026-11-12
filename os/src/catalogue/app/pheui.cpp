@@ -79,6 +79,8 @@ void CPheCatalogueView::ConstructL(const TRect& aRect)
 CPheCatalogueView::~CPheCatalogueView()
 	{
 	delete iTimer;
+	delete iBannerBmp[0];
+	delete iBannerBmp[1];
 	ClearRows();
 	iRows.Close();
 	ClearSources();
@@ -87,8 +89,6 @@ CPheCatalogueView::~CPheCatalogueView()
 	delete iLoadMsg;
 	delete iPageTitle;
 	delete iPageEmpty;
-	delete iBannerTitle;
-	delete iBannerText;
 	delete iDTitle;
 	delete iDMeta;
 	delete iDBody;
@@ -133,6 +133,7 @@ void CPheCatalogueView::LayoutL()
 	if (iScale < 128)
 		iScale = 128;
 	iHeaderH = Sc(64);
+	SetHome(iHome);                                  // (the banner height follows the scale)
 	iBarH = Sc(56);
 	iRowH = Sc(83);
 	iSrcRowH = Sc(68);
@@ -261,13 +262,16 @@ static TInt64 FastUs()
 	{
 	return TInt64(User::FastCounter()) * 1000000 / FastFreq();
 	}
-void CPheCatalogueView::SetBanner(const TDesC& aTitle, const TDesC& aText)
+// Home has no title line: the banner (header height + iPad) is the title, and the left bar button closes the app
+void CPheCatalogueView::SetHome(TBool aHome)
 	{
-	delete iBannerTitle;
-	iBannerTitle = aTitle.Alloc();
-	delete iBannerText;
-	iBannerText = aText.Alloc();
-	iPad = (iBannerTitle && iBannerTitle->Length()) ? Sc(148) : 0;
+	iHome = aHome;
+	if (aHome)
+		LoadBanner();
+	// the art's own shape at the screen's width (360x130 portrait, 640x130 landscape)
+	TInt w = Rect().Width();
+	TInt bh = w > Rect().Height() ? w * 130 / 640 : w * 130 / 360;
+	iPad = aHome ? Max(0, bh - iHeaderH) : 0;
 	}
 
 // word-wrapped text from the top aY (advanced past the last line), lines broken at spaces within aWidth
@@ -296,26 +300,44 @@ void CPheCatalogueView::DrawWrapped(const TDesC& aText, const CFont& aFont, TInt
 		}
 	}
 
-// the welcome banner on the home page: a dark card, the title, a line or two of text (no picture: it is there at once)
+// the banner art (our own, data/make_banner.py): one picture, no words -- as the store it follows had (a bitmap
+// resource, text only when a server banner brought some). Loaded once; missing art = a plain blue band
+void CPheCatalogueView::LoadBanner()
+	{
+	_LIT(KBannerMbm, ":\\resource\\apps\\phestore_banner.mbm");
+	// the drive the app runs from (a Catalogue SIS on C: or E:), then the ROM
+	TFileName exe(RProcess().FileName());
+	TChar drives[2] = { exe.Length() ? TChar(exe[0]) : TChar('z'), TChar('z') };
+	for (TInt i = 0; i < 2; ++i)
+		{
+		if (iBannerBmp[i])
+			continue;
+		for (TInt d = 0; d < 2 && !iBannerBmp[i]; ++d)
+			{
+			TFileName path;
+			path.Append(drives[d]);
+			path.Append(KBannerMbm);
+			CFbsBitmap* b = new CFbsBitmap;
+			if (b && b->Load(path, i) == KErrNone)
+				iBannerBmp[i] = b;
+			else
+				delete b;
+			}
+		}
+	}
+
+// the welcome banner on the home page: the whole top of the screen, Home's title.
+// aY = its top (0 at rest, up to -iPad when scrolled: its last header-high strip stays as the page's top bar)
 void CPheCatalogueView::DrawBanner(TInt aY)
 	{
 	TInt w = Rect().Width();
-	TRect card(iMargin, aY + iMargin, w - iMargin, aY + iPad - Sc(4));
-	iFrameGc->SetPenStyle(CGraphicsContext::ENullPen);
-	iFrameGc->SetBrushStyle(CGraphicsContext::ESolidBrush);
-	iFrameGc->SetBrushColor(TRgb(0x26, 0x26, 0x26));
-	iFrameGc->DrawRoundRect(card, TSize(Sc(12), Sc(12)));
-	iFrameGc->SetBrushColor(TRgb(0x1d, 0x6f, 0xd6));          // the Catalogue blue, a strip on the left
-	iFrameGc->DrawRect(TRect(card.iTl.iX, card.iTl.iY + Sc(16), card.iTl.iX + Sc(5), card.iBr.iY - Sc(16)));
-	iFrameGc->SetBrushStyle(CGraphicsContext::ENullBrush);
-	iFrameGc->SetPenStyle(CGraphicsContext::ESolidPen);
-	TInt x = card.iTl.iX + Sc(20);
-	TInt tw = card.Width() - Sc(40);
-	TInt y = card.iTl.iY + Sc(18);
-	DrawWrapped(*iBannerTitle, *iFHeader, x, y, tw, KWhite);
-	y += Sc(6);
-	if (iBannerText)
-		DrawWrapped(*iBannerText, *iFInfo, x, y, tw, TRgb(0xcf, 0xcf, 0xcf));
+	TInt h = iHeaderH + iPad;
+	TBool land = w > Rect().Height();
+	CFbsBitmap* b = iBannerBmp[land ? 1 : 0];
+	if (b)
+		iFrameGc->DrawBitmap(TRect(0, aY, w, aY + h), b);
+	else
+		FillGradient(TRect(0, aY, w, aY + h), TRgb(0x30, 0x6e, 0xbd), TRgb(0x15, 0x25, 0x9a));
 	}
 
 void CPheCatalogueView::Redraw()
@@ -881,8 +903,8 @@ void CPheCatalogueView::BarAction(TInt aCell)
 		{
 		if (iMode != EList)
 			iUi.UiBack();
-		else if (iTab != 0)
-			iUi.UiTabBack();
+		else if (!AtRoot())
+			iUi.UiTabBack();                        // a category, a search, another tab: back to Home
 		else
 			iUi.UiExit();
 		return;
@@ -1017,7 +1039,7 @@ void CPheCatalogueView::DrawBar()
 			iFrameGc->DrawLine(TPoint(x0, top + 3), TPoint(x1, top + 3));
 			iFrameGc->SetPenSize(TSize(1, 1));
 			}
-		TInt kind = i == 0 ? ((iMode != EList || iTab != 0) ? EIconBack : EIconExit) : (i == 5 ? EIconOptions : EIconHome + (i - 1));
+		TInt kind = i == 0 ? (AtRoot() ? EIconExit : EIconBack) : (i == 5 ? EIconOptions : EIconHome + (i - 1));
 		DrawBarIcon(kind, TPoint((x0 + x1) / 2, top + 2 + (bottom - top - 2) / 2),
 			pressed ? KWhite : (active ? KBarActive : KBarIcon));
 		}
@@ -1051,8 +1073,6 @@ void CPheCatalogueView::RenderList()
 	TInt h = ViewH();
 	TInt n = iRows.Count();
 	iRetryRect = TRect();
-	if (iPad > 0 && iOffset < iPad)
-		DrawBanner(iHeaderH - iOffset);
 	if (n > 0)
 		{
 		TInt first = Max(0, (iOffset - iPad) / iRowH);
@@ -1088,6 +1108,11 @@ void CPheCatalogueView::RenderList()
 		{
 		_LIT(KNone, "No apps for this device");
 		DrawEmpty(iPageEmpty && iPageEmpty->Length() ? *iPageEmpty : static_cast<const TDesC&>(KNone), EFalse, EFalse);
+		}
+	if (iHome && iPad > 0)
+		{
+		DrawBanner(-Min(iOffset, iPad));            // scrolls away up to a header-high strip; the banner is Home's title
+		return;
 		}
 	_LIT(KTitle, "Catalogue");
 	DrawHeader(iPageTitle && iPageTitle->Length() ? *iPageTitle : static_cast<const TDesC&>(KTitle));

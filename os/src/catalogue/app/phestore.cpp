@@ -224,30 +224,10 @@ public:
 		iView->SetPage(title, empty);
 		SetBanner();
 		}
-	// Home's welcome banner: the index's "banner" (title, text), else Catalogue's own words
+	// Home: the banner (no words: it is the title) and the X; every other page has its title and Back
 	void SetBanner()
 		{
-		if (iScope != EScopeCategories)
-			{
-			iView->SetBanner(KNullDesC, KNullDesC);
-			return;
-			}
-		TBuf<64> title(_L("Welcome to Catalogue"));
-		TBuf<160> text(_L("Apps, codecs, engines and tools for your phone, from open source."));
-		for (TInt i = 0; i < iGet->IndexCount(); ++i)
-			{
-			const CPheJson* b = iGet->Index(i).Get(_L8("banner"));
-			if (!b || b->Type() != CPheJson::EObject)
-				continue;
-			const CPheJson* t = b->Get(_L8("title"));
-			const CPheJson* x = b->Get(_L8("text"));
-			if (t && t->Str().Length())
-				CnvUtfConverter::ConvertToUnicodeFromUtf8(title, t->Str().Left(60));
-			if (x && x->Str().Length())
-				CnvUtfConverter::ConvertToUnicodeFromUtf8(text, x->Str().Left(150));
-			break;
-			}
-		iView->SetBanner(title, text);
+		iView->SetHome(iScope == EScopeCategories);
 		}
 	// a category of the index ("categories": tag, name, icon_url), or NULL (an older index: the tag itself)
 	const CPheJson* Category(const TDesC8& aTag) const
