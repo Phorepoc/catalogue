@@ -1111,7 +1111,10 @@ void CPheCatalogueView::RenderList()
 		}
 	if (iHome && iPad > 0)
 		{
-		DrawBanner(-Min(iOffset, iPad));            // scrolls away up to a header-high strip; the banner is Home's title
+		TInt top = -Min(iOffset, iPad);
+		DrawBanner(top);                            // scrolls away up to a header-high strip; the banner is Home's title
+		if (iLoad == ELoading && iRows.Count() > 0) // a refresh over cached rows: the spinner on the strip that stays
+			DrawSpinner(TPoint(iMargin + Sc(12), top + iPad + iHeaderH / 2), Sc(11));
 		return;
 		}
 	_LIT(KTitle, "Catalogue");
