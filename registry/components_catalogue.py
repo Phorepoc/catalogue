@@ -22,7 +22,7 @@ from paths import OS_ROOT
 _SRC = os.path.join(OS_ROOT, "src", "catalogue")
 
 COMPONENTS = {
-    "catalogue": dict(mmp=os.path.join(_SRC, "app", "phestore.mmp"), rom="phestore.exe",
+    "catalogue": dict(mmp=os.path.join(_SRC, "app", "phestore.mmp"), rom="phestore.exe", sis=True,
                       rom_data=[r"resource\apps\phestore_icon.mbm=" + os.path.join(_SRC, "app", "data", "phestore_icon.mbm"),
                                 r"resource\apps\phestore_banner.mbm=" + os.path.join(_SRC, "app", "data", "phestore_banner.mbm")]),
     "catalogue_get": dict(mmp=os.path.join(_SRC, "engine", "pheget.mmp"), rom="pheget.exe"),
