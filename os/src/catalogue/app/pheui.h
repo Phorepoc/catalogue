@@ -157,6 +157,7 @@ private:
 	void DrawButton(const TRect& aRect, const TDesC& aLabel, TBool aEnabled);
 	void DrawProgress(const TRect& aRect, TInt aPermille);
 	void DrawEmpty(const TDesC& aMessage, TBool aError, TBool aButton);
+	TInt WrappedLines(const TDesC& aText, const CFont& aFont, TInt aWidth) const;
 	void DrawWrapped(const TDesC& aText, const CFont& aFont, TInt aX, TInt& aY, TInt aWidth, TRgb aColour);
 	void Text(const TDesC& aText, const CFont& aFont, TInt aX, TInt aBaseline, TRgb aColour);
 	void TextClipped(const TDesC& aText, const CFont& aFont, TInt aX, TInt aBaseline, TInt aMaxW, TRgb aColour);
@@ -197,6 +198,9 @@ private:
 	CFont* iFSmall;             // 15
 	CFont* iFHeader;            // 26 bold
 	CFont* iFButton;
+	CFont* iFWelcome;           // the banner's welcome line, 22 bold
+	CFont* iFWelcomeSub;        // its subline, 16
+	CFont* iFWelcomeSmall;      // the welcome line when it wraps (portrait), 20 bold (its subline then uses iFSmall)
 	TInt iAscTitle, iAscInfo, iAscSmall, iAscHeader;
 
 	// off-screen frame
@@ -211,6 +215,8 @@ private:
 	CFbsBitGc* iShownGc;
 	TBool iPainted;
 	TBool iHome;                // the Home page (the root: X closes the app)
+	HBufC* iWelcome;            // the banner's text (phestore.loc: qtn_phestore_welcome / _sub), drawn beside the art
+	HBufC* iWelcomeSub;
 	CFbsBitmap* iBannerBmp[2];  // the banner art: portrait 360x130, landscape 640x130 (scaled to the width)
 	TInt iPad;                  // the banner's height below the header line (0 = none)
 	TInt64 iPerfR, iPerfD;      // the frame cost log (Redraw)

@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """make_banner.py -- renders Catalogue's Home welcome banner: our own art, the Etesian design language
 (https://language.etesian-design.com): the app tile's blue (#306EBD -> #15259A), soft light from the upper left, one
-3D shopping basket in the tile glyph's cream (#F6F8ED -> #D0C9C6), lit from above. No text: the banner is Home's title.
+open catalogue in the tile glyph's cream (#F6F8ED -> #D0C9C6), its pages showing app tiles, at the right (the right
+136/360 portrait, 176/640 landscape). No text in the picture: the app draws the welcome line beside it (phestore.loc).
 Writes phestore_banner.mbm (bitmap 0 = portrait 360x130, 1 = landscape 640x130, 24 bpp; the app scales it to the
 screen's width) and phestore_banner_preview.png. Run: py make_banner.py (needs Pillow)."""
+import math
 import os
 import struct
 
@@ -35,64 +37,147 @@ def glow(size, centre, radius, colour, alpha):
     return layer.filter(ImageFilter.GaussianBlur(radius / 2))
 
 
-def basket(size, cx, cy, s):
-    """the basket in a box of side s centred at (cx, cy): handle, rim, tapered body with a shaded right side, slats"""
+TILES = [(0xF2, 0x8C, 0x3A), (0x3C, 0xB3, 0x71), (0x8E, 0x5B, 0xD9), (0x2B, 0xA8, 0xC9), (0xE8, 0x4E, 0x6A), (0xF4, 0xC4, 0x30)]
+PAPER = (0xF4, 0xF2, 0xEA)
+INK_DARK = (0x6A, 0x66, 0x64)
+INK_LIGHT = (0xBE, 0xB8, 0xB3)
+INK_BLUE = (0x30, 0x6E, 0xBD)
+
+
+def ink(c, k=0.22):
+    """a colour as printed ink: pulled toward the paper (lower contrast and saturation)"""
+    grey = sum(c) / 3
+    c = tuple(v + (grey - v) * 0.25 for v in c)                      # less saturated
+    return tuple(int(v + (PAPER[i] - v) * k + 0.5) for i, v in enumerate(c))
+
+
+def rrect(d, box, r, fill):
+    d.rounded_rectangle(box, radius=r, fill=fill)
+
+
+def page_flat(pw, ph, side):
+    """one page drawn flat (pw x ph), its content laid out on the page margins. side -1 = left (a 2x3 tile grid),
+    1 = right (three list rows and a button); both share the same margins and top/bottom lines"""
+    img = Image.new("RGB", (pw, ph), PAPER)
+    d = ImageDraw.Draw(img)
+    mx, my = pw * 0.14, ph * 0.10                                    # outer margins (the same on both pages)
+    gx = pw * 0.12                                                   # gutter between columns / items
+    x0, x1, y0, y1 = mx, pw - mx, my, ph - my
+    if side < 0:
+        cols, rows = 2, 3
+        t = min((x1 - x0 - gx * (cols - 1)) / cols, (y1 - y0 - gx * (rows - 1)) / rows)
+        gy = (y1 - y0 - rows * t) / (rows - 1)
+        gxx = (x1 - x0 - cols * t) / (cols - 1)
+        n = 0
+        for r in range(rows):
+            for c in range(cols):
+                bx, by = x0 + c * (t + gxx), y0 + r * (t + gy)
+                rrect(d, (bx, by, bx + t, by + t), t * 0.24, ink(TILES[n]))
+                g = t * 0.15
+                d.ellipse((bx + t / 2 - g, by + t / 2 - g, bx + t / 2 + g, by + t / 2 + g), fill=ink((255, 255, 255), 0.12))
+                n += 1
+    else:
+        bh = (y1 - y0) * 0.12                                        # the button's height, on the bottom margin line
+        rows = 3
+        area = (y1 - y0) - bh - gx
+        t = min((area - gx * (rows - 1)) / rows, (x1 - x0) * 0.32)
+        gy = (area - rows * t) / (rows - 1)
+        for r in range(rows):
+            by = y0 + r * (t + gy)
+            rrect(d, (x0, by, x0 + t, by + t), t * 0.24, ink(TILES[(r + 3) % 6]))
+            tx = x0 + t + gx * 0.7
+            rrect(d, (tx, by + t * 0.14, x1, by + t * 0.40), t * 0.13, ink(INK_DARK))
+            rrect(d, (tx, by + t * 0.60, tx + (x1 - tx) * 0.7, by + t * 0.82), t * 0.11, ink(INK_LIGHT))
+        rrect(d, (x0, y1 - bh, x1, y1), bh / 2, ink(INK_BLUE))
+    return img
+
+
+def catalogue(size, cx, cy, s):
+    """an open catalogue in a box of side s centred at (cx, cy). Each page is drawn flat, then laid on its curved plane
+    column by column (the content follows the page), and the page's shading -- darker toward the spine -- goes over it"""
+    W, H = size
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    top, bottom = cy - s * 0.10, cy + s * 0.46
-    hw_top, hw_bot = s * 0.50, s * 0.36
-    rim = s * 0.11
-    # the shadow it casts on the banner
+    pw, ph = s * 0.62, s * 0.80                                      # one page as seen (half the spread)
+    top = cy - ph / 2
+    dip = ph * 0.07                                                  # how far the page sinks into the gutter
+    sag = ph * 0.035                                                 # the bottom edge's lesser curve
+    thick = max(2, s * 0.03)                                         # the page block's thickness
+
+    def x_of(side, u):                                               # u 0 = spine, 1 = outer edge; foreshortened near the spine
+        return cx + side * pw * (0.6 * u + 0.4 * u * u)        # compressed toward the spine, where the page bends away
+
+    def ys(u):
+        k = (1 - u) ** 2.2
+        return top + dip * k, top + ph + sag * k
+
+    # the shadow under the book
     sh = Image.new("RGBA", size, (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse((cx - hw_bot * 1.25, bottom - rim * 0.3, cx + hw_bot * 1.35, bottom + rim * 1.4), fill=(5, 12, 60, 120))
-    layer = Image.alpha_composite(layer, sh.filter(ImageFilter.GaussianBlur(s * 0.05)))
+    ImageDraw.Draw(sh).ellipse((cx - pw * 1.08, top + ph - s * 0.03, cx + pw * 1.08, top + ph + s * 0.13), fill=(5, 12, 60, 130))
+    layer = Image.alpha_composite(layer, sh.filter(ImageFilter.GaussianBlur(s * 0.045)))
     d = ImageDraw.Draw(layer)
-    # the handle: an arch behind the rim, a darker core and a lit upper edge
-    hw = s * 0.34
-    box = (cx - hw, top - s * 0.52, cx + hw, top + s * 0.36)
-    d.arc(box, 180, 360, fill=(0xB9, 0xB1, 0xAD, 255), width=int(s * 0.075))
-    d.arc((box[0], box[1] - s * 0.012, box[2], box[3] - s * 0.012), 185, 355, fill=CREAM[0] + (255,), width=int(s * 0.03))
-    # the inside, seen over the rim
-    d.ellipse((cx - hw_top, top - rim, cx + hw_top, top + rim), fill=(0x8F, 0x88, 0x86, 255))
-    # the body: a lit left, a shaded right third; vertical cream gradient
-    rows = int(bottom - top)
-    for i in range(rows + 1):
-        t = i / max(1, rows)
-        half = hw_top - (hw_top - hw_bot) * t
-        y = top + i
-        split = cx + half * 0.35
-        d.line((cx - half, y, split, y), fill=lerp(CREAM[0], CREAM[2], t) + (255,))
-        d.line((split, y, cx + half, y), fill=lerp((0xC8, 0xC0, 0xBC), (0x9E, 0x96, 0x93), t) + (255,))
-    # the rounded bottom
-    d.chord((cx - hw_bot, bottom - rim * 0.8, cx + hw_bot, bottom + rim * 0.8), 0, 180, fill=(0xA8, 0x9F, 0x9C, 255))
-    # slats: grooves following the taper, and two weave bands across
-    for k in (-2, -1, 0, 1, 2):
-        d.line((cx + k * hw_top / 3, top + rim, cx + k * hw_bot / 3, bottom), fill=(0xAE, 0xA6, 0xA3, 255), width=max(1, int(s * 0.018)))
-    for f in (0.38, 0.70):
-        y = top + (bottom - top) * f
-        half = hw_top - (hw_top - hw_bot) * f
-        d.arc((cx - half, y - rim * 0.7, cx + half, y + rim * 0.7), 0, 180, fill=(0xB4, 0xAC, 0xA8, 255), width=max(1, int(s * 0.02)))
-    # the rim: a cream band, its front lip catching the light
-    d.ellipse((cx - hw_top, top - rim, cx + hw_top, top + rim), outline=CREAM[1] + (255,), width=int(s * 0.06))
-    d.arc((cx - hw_top, top - rim, cx + hw_top, top + rim), 10, 170, fill=(255, 255, 255, 255), width=max(1, int(s * 0.02)))
+    # the cover, then the page block's thickness: a few page edges under each page's outer and bottom edges
+    N = 48
+    for side in (-1, 1):
+        pts = [(x_of(side, i / N), ys(i / N)[1]) for i in range(N + 1)]
+        cover = [(cx, ys(0)[0] + thick)] + [(x_of(side, 1) + side * thick * 1.2, ys(1)[0] + thick)] + \
+                [(x + side * thick * 1.2 * (i / N), y + thick * 2.2) for i, (x, y) in reversed(list(enumerate(pts)))]
+        d.polygon(cover, fill=(0x12, 0x20, 0x7C, 255))
+        # the page block: one band under the outer and bottom edges, its paper edges as two tones
+        for o, col in ((thick, (0xC8, 0xC2, 0xBB, 255)), (thick * 0.5, (0xE6, 0xE1, 0xD9, 255))):
+            outer = [(x_of(side, i / N) + side * o * (i / N), ys(i / N)[1] + o) for i in range(N + 1)]
+            outer.append((x_of(side, 1) + side * o, ys(1)[0] + o))
+            inner = [(x_of(side, 1) - side * thick, ys(1)[0])] + [(x_of(side, i / N) - side * thick * (i / N), ys(i / N)[1] - thick) for i in range(N, -1, -1)]
+            d.polygon(outer + inner, fill=col)
+    # each page: flat content -> its curved plane, column by column, with the shading over the content
+    FW, FH = int(pw * 1.6), int(ph * 1.6)                            # the flat page, a little oversampled
+    for side in (-1, 1):
+        flat = page_flat(FW, FH, side)
+        xa, xb = int(min(x_of(side, 0), x_of(side, 1))), int(max(x_of(side, 0), x_of(side, 1)))
+        cols = []
+        for X in range(xa, xb + 1):
+            # invert x_of for u (monotonic): bisection
+            lo, hi = 0.0, 1.0
+            for _ in range(22):
+                m = (lo + hi) / 2
+                if (x_of(side, m) - cx) * side < (X - cx) * side:
+                    lo = m
+                else:
+                    hi = m
+            cols.append((X, (lo + hi) / 2))
+        for X, u in cols:
+            y0, y1 = ys(u)
+            hgt = int(math.ceil(y1)) - int(y0) + 1
+            if hgt <= 0:
+                continue
+            src_x = min(FW - 1, int((u if side > 0 else 1 - u) * FW))
+            strip = flat.crop((src_x, 0, src_x + 1, FH)).resize((1, hgt), Image.BILINEAR)
+            # shading: darker toward the spine, a soft light band on the page's rise, slightly cooler on the right page
+            shade = 0.70 + 0.30 * min(1, u * 3.2) ** 0.7
+            if side > 0:
+                shade *= 0.96
+            shade = min(1.0, shade + 0.04 * max(0, 1 - abs(u - 0.35) * 4))
+            px = strip.point(lambda v: int(v * shade))
+            layer.paste(px.convert("RGBA"), (X, int(y0)))
+    d = ImageDraw.Draw(layer)
+    # the gutter: a thin dark fold
+    d.line([(cx, ys(0)[0]), (cx, ys(0)[1])], fill=(0x8C, 0x85, 0x82, 255), width=max(1, int(s * 0.008)))
     return layer
 
 
-def banner(w, h):
+def banner(w, h, art_w):
+    """the band at w x h, the catalogue centred in the right art_w (pheui.cpp DrawBanner keeps the text left of it)"""
     W, H = w * SS, h * SS
     img = vgrad(W, H, TOP, BOTTOM).convert("RGBA")
     img = Image.alpha_composite(img, glow((W, H), (W * 0.12, -H * 0.2), H * 1.0, (0x5A, 0x96, 0xDC), 90))
     img = Image.alpha_composite(img, glow((W, H), (W * 0.55, H * 1.1), H * 0.8, (0x2C, 0x60, 0xB8), 70))
-    s = H * 0.72
-    cx, cy = W - s * 0.75, H * 0.52
-    img = Image.alpha_composite(img, glow((W, H), (cx, cy), s * 0.75, (0x6C, 0xA6, 0xE6), 110))
-    # two faint light rings (the swirl of the original idea, kept abstract)
+    s = H * 0.74
+    cx, cy = W - art_w * SS / 2, H * 0.47
+    img = Image.alpha_composite(img, glow((W, H), (cx, cy), s * 0.70, (0x6C, 0xA6, 0xE6), 100))
     rings = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     rd = ImageDraw.Draw(rings)
-    rd.ellipse((-W * 0.15, -H * 1.3, W * 0.55, H * 0.9), outline=(0x8C, 0xBC, 0xF0, 60), width=SS * 2)
-    rd.ellipse((W * 0.30, H * 0.35, W * 0.30 + H * 1.6, H * 1.95), outline=(0x8C, 0xBC, 0xF0, 45), width=SS * 2)
+    rd.ellipse((-W * 0.15, -H * 1.3, W * 0.55, H * 0.9), outline=(0x8C, 0xBC, 0xF0, 50), width=SS * 2)
     img = Image.alpha_composite(img, rings.filter(ImageFilter.GaussianBlur(SS)))
-    img = Image.alpha_composite(img, basket((W, H), cx, cy, s))
+    img = Image.alpha_composite(img, catalogue((W, H), cx, cy, s))
     return img.convert("RGB").resize((w, h), Image.LANCZOS)
 
 
@@ -133,7 +218,7 @@ def mbm(images):
 
 
 if __name__ == "__main__":
-    p, l = banner(360, 130), banner(640, 130)
+    p, l = banner(360, 130, 136), banner(640, 130, 176)
     with open(os.path.join(HERE, "phestore_banner.mbm"), "wb") as f:
         f.write(mbm([p, l]))
     prev = Image.new("RGB", (640, 270), (255, 255, 255))

@@ -9,6 +9,7 @@ NAME PHST
 #include <avkon.rsg>
 #include <appinfo.rh>
 #include "phestore.hrh"
+#include "phestore.loc"
 
 RESOURCE RSS_SIGNATURE { }
 RESOURCE TBUF r_default_document_name { buf = ""; }
@@ -144,3 +145,8 @@ RESOURCE DIALOG r_phestore_add_source_query
 			}
 		};
 	}
+
+// Home's banner: the welcome line and its subline (pheui.cpp DrawBanner). At the end: EIK_APP_INFO must stay the
+// third resource (CEikAppUi reads it by position)
+RESOURCE TBUF r_phestore_welcome { buf = qtn_phestore_welcome; }
+RESOURCE TBUF r_phestore_welcome_sub { buf = qtn_phestore_welcome_sub; }

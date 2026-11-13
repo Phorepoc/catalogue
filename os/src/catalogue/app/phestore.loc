@@ -1,0 +1,12 @@
+// Copyright The Phorepoc Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// phestore.loc -- OURS: Catalogue's localisable strings (phestore.rss)
+
+// d:The welcome line on Home's banner, beside the catalogue picture (wraps to two lines at 360 px portrait)
+// l:none
+#define qtn_phestore_welcome "Welcome to the Catalogue"
+
+// d:The subline under the welcome line on Home's banner (short: never the device or specific categories)
+// l:none
+#define qtn_phestore_welcome_sub "Free and Open Source Symbian Software"

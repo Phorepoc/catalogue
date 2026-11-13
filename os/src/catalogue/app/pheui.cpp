@@ -8,6 +8,7 @@
 #include <eikenv.h>
 #include <coemain.h>
 #include <w32std.h>
+#include <phestore.rsg>
 
 static TInt FastFreq()
 	{
@@ -81,6 +82,8 @@ CPheCatalogueView::~CPheCatalogueView()
 	delete iTimer;
 	delete iBannerBmp[0];
 	delete iBannerBmp[1];
+	delete iWelcome;
+	delete iWelcomeSub;
 	ClearRows();
 	iRows.Close();
 	ClearSources();
@@ -101,8 +104,8 @@ CPheCatalogueView::~CPheCatalogueView()
 	delete iShownDev;
 	delete iShown;
 	CWsScreenDevice* dev = CEikonEnv::Static()->ScreenDevice();
-	CFont* fonts[5] = { iFTitle, iFInfo, iFSmall, iFHeader, iFButton };
-	for (TInt i = 0; i < 5; ++i)
+	CFont* fonts[8] = { iFTitle, iFInfo, iFSmall, iFHeader, iFButton, iFWelcome, iFWelcomeSub, iFWelcomeSmall };
+	for (TInt i = 0; i < 8; ++i)
 		if (fonts[i])
 			dev->ReleaseFont(fonts[i]);
 	}
@@ -141,8 +144,8 @@ void CPheCatalogueView::LayoutL()
 	iIconPx = Sc(66);
 	iMargin = Sc(12);
 	CWsScreenDevice* dev = CEikonEnv::Static()->ScreenDevice();
-	CFont** fonts[5] = { &iFTitle, &iFInfo, &iFSmall, &iFHeader, &iFButton };
-	for (TInt i = 0; i < 5; ++i)
+	CFont** fonts[8] = { &iFTitle, &iFInfo, &iFSmall, &iFHeader, &iFButton, &iFWelcome, &iFWelcomeSub, &iFWelcomeSmall };
+	for (TInt i = 0; i < 8; ++i)
 		if (*fonts[i])
 			{
 			dev->ReleaseFont(*fonts[i]);
@@ -153,7 +156,10 @@ void CPheCatalogueView::LayoutL()
 	iFSmall = MakeFont(Sc(15), EFalse);
 	iFHeader = MakeFont(Sc(26), ETrue);
 	iFButton = MakeFont(Sc(22), EFalse);
-	if (!iFTitle || !iFInfo || !iFSmall || !iFHeader || !iFButton)
+	iFWelcome = MakeFont(Sc(22), ETrue);
+	iFWelcomeSub = MakeFont(Sc(16), EFalse);
+	iFWelcomeSmall = MakeFont(Sc(20), ETrue);
+	if (!iFTitle || !iFInfo || !iFSmall || !iFHeader || !iFButton || !iFWelcome || !iFWelcomeSub)
 		User::Leave(KErrNotFound);
 	iAscTitle = iFTitle->AscentInPixels();
 	iAscInfo = iFInfo->AscentInPixels();
@@ -300,8 +306,8 @@ void CPheCatalogueView::DrawWrapped(const TDesC& aText, const CFont& aFont, TInt
 		}
 	}
 
-// the banner art (our own, data/make_banner.py): one picture, no words -- as the store it follows had (a bitmap
-// resource, text only when a server banner brought some). Loaded once; missing art = a plain blue band
+// the banner art (our own, data/make_banner.py): an open catalogue on the right, no words in the picture; the welcome
+// text is drawn beside it from the resource strings. Loaded once; missing art = a plain blue band (text still drawn)
 void CPheCatalogueView::LoadBanner()
 	{
 	_LIT(KBannerMbm, ":\\resource\\apps\\phestore_banner.mbm");
@@ -324,6 +330,36 @@ void CPheCatalogueView::LoadBanner()
 				delete b;
 			}
 		}
+	// the welcome text: real, localisable strings (phestore.loc), drawn by DrawBanner beside the art
+	if (!iWelcome)
+		TRAP_IGNORE(iWelcome = CCoeEnv::Static()->AllocReadResourceL(R_PHESTORE_WELCOME));
+	if (!iWelcomeSub)
+		TRAP_IGNORE(iWelcomeSub = CCoeEnv::Static()->AllocReadResourceL(R_PHESTORE_WELCOME_SUB));
+	}
+
+// the lines DrawWrapped breaks aText into
+TInt CPheCatalogueView::WrappedLines(const TDesC& aText, const CFont& aFont, TInt aWidth) const
+	{
+	TInt n = 0;
+	TPtrC rest(aText);
+	while (rest.Length() > 0)
+		{
+		TInt fit = aFont.TextCount(rest, aWidth);
+		if (fit <= 0)
+			fit = 1;
+		TInt cut = fit;
+		if (fit < rest.Length())
+			{
+			TInt sp = rest.Left(fit + 1).LocateReverse(' ');
+			if (sp > 0)
+				cut = sp;
+			}
+		++n;
+		rest.Set(rest.Mid(cut));
+		while (rest.Length() > 0 && rest[0] == ' ')
+			rest.Set(rest.Mid(1));
+		}
+	return n;
 	}
 
 // the welcome banner on the home page: the whole top of the screen, Home's title.
@@ -338,6 +374,30 @@ void CPheCatalogueView::DrawBanner(TInt aY)
 		iFrameGc->DrawBitmap(TRect(0, aY, w, aY + h), b);
 	else
 		FillGradient(TRect(0, aY, w, aY + h), TRgb(0x30, 0x6e, 0xbd), TRgb(0x15, 0x25, 0x9a));
+	// the welcome line and its subline, left of the catalogue art (make_banner.py keeps the art in the right
+	// 136/360 of the portrait picture, 176/640 of the landscape one), wrapped and centred in the band's height
+	TInt artW = land ? w * 176 / 640 : w * 136 / 360;
+	TInt x = Sc(18);
+	TInt tw = w - artW - x - Sc(4);
+	if (tw <= 0 || !iFWelcome || !iFWelcomeSub || !iFWelcomeSmall)
+		return;
+	const TDesC& t1 = iWelcome ? static_cast<const TDesC&>(*iWelcome) : KNullDesC();
+	const TDesC& t2 = iWelcomeSub ? static_cast<const TDesC&>(*iWelcomeSub) : KNullDesC();
+	// a narrow band (360 portrait) wraps the title: the smaller pair (20 bold / 15) keeps four lines clear of the edges
+	const CFont* f1 = iFWelcome;
+	const CFont* f2 = iFWelcomeSub;
+	if (WrappedLines(t1, *f1, tw) > 1)
+		{
+		f1 = iFWelcomeSmall;
+		f2 = iFSmall;
+		}
+	TInt l1 = f1->HeightInPixels() + Sc(2), l2 = f2->HeightInPixels() + Sc(2);
+	TInt gap = t1.Length() && t2.Length() ? Sc(5) : 0;
+	TInt th = WrappedLines(t1, *f1, tw) * l1 + gap + WrappedLines(t2, *f2, tw) * l2;
+	TInt y = aY + Max(Sc(6), (h - th) / 2);
+	DrawWrapped(t1, *f1, x, y, tw, KRgbWhite);
+	y += gap;
+	DrawWrapped(t2, *f2, x, y, tw, TRgb(0xd6, 0xe4, 0xf7));
 	}
 
 void CPheCatalogueView::Redraw()

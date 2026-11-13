@@ -224,7 +224,7 @@ public:
 		iView->SetPage(title, empty);
 		SetBanner();
 		}
-	// Home: the banner (no words: it is the title) and the X; every other page has its title and Back
+	// Home: the banner (the art + the welcome text: it is the title) and the X; every other page has its title and Back
 	void SetBanner()
 		{
 		iView->SetHome(iScope == EScopeCategories);
