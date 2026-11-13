@@ -24,6 +24,9 @@ _LIT(KPheGetDir, "c:\\data\\pheget\\");                          // indexes.txt 
 _LIT(KPheGetDownloads, "c:\\data\\installs\\");                  // the package cache (prefill = offline installs)
 // InstallL's answer when a listing (or one it requires) names a compatibility.min_core above the image's core= (device.txt)
 const TInt KErrPheGetNeedsNewerSystem = -46201;
+// SWI's KSWInstErrFileInUse (SWInstDefs.h): a file the package would install is in use, or the image's own copy of it
+// has no ROM stub that lets the package replace it (KErrInvalidEclipsing)
+const TInt KPheSwiErrFileInUse = -30477;
 
 // One item of an index (pointers into the loaded index tree; valid while the engine is).
 class TPheGetItem

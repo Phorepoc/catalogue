@@ -5,7 +5,9 @@
 // log as "PH: [pheget] ..." (PhoneLab and `ph` read those).
 //
 //   pheget list [-all] [-index <url|path>] [-no-default]      the items that fit this device (-all: every item)
-//   pheget install <id> [-drive <c|e>] [-index ...] [-no-default]
+//   pheget install <id> [-drive <c|e>] [-index ...] [-no-default] [-after <pid>] [-restart <exe>]
+//                                                               -after: first wait (up to 30 s) for that process to end;
+//                                                               -restart: then start that exe (Catalogue's self-update)
 //   pheget device                                               the board / architecture / core version the device reports
 //   pheget sources                                              the default index (on/off) and the added sources
 //   pheget add <url|path>  |  remove <n|url|path>               add / remove a software source (indexes.txt)
@@ -41,6 +43,8 @@ static TInt RunL()
 	TBool noDefault = EFalse;
 	TBool all = EFalse;
 	TChar drive('c');
+	TUint after = 0;
+	TPtrC restart;
 	for (TPtrC tok = lex.NextToken(); tok.Length(); tok.Set(lex.NextToken()))
 		{
 		if (tok == _L("-index"))
@@ -49,6 +53,13 @@ static TInt RunL()
 			noDefault = ETrue;
 		else if (tok == _L("-all"))
 			all = ETrue;
+		else if (tok == _L("-after"))
+			{
+			TLex pid(lex.NextToken());
+			pid.Val(after);
+			}
+		else if (tok == _L("-restart"))
+			restart.Set(lex.NextToken());
 		else if (tok == _L("-drive"))
 			{
 			TPtrC d = lex.NextToken();
@@ -57,6 +68,47 @@ static TInt RunL()
 			}
 		else
 			id.Set(tok);
+		}
+
+	// -after <pid>: the process that asked for this install (Catalogue updating itself) exits first, so the package can
+	// replace its files; waits at most 30 s
+	if (after)
+		{
+		RProcess waitFor;
+		if (waitFor.Open(TProcessId(after)) == KErrNone)
+			{
+			TRequestStatus ended;
+			waitFor.Logon(ended);
+			if (ended == KRequestPending)
+				{
+				RTimer timer;
+				TRequestStatus timeout;
+				if (timer.CreateLocal() == KErrNone)
+					{
+					timer.After(timeout, 30000000);
+					User::WaitForRequest(ended, timeout);
+					if (ended == KRequestPending)
+						{
+						waitFor.LogonCancel(ended);
+						User::WaitForRequest(ended);
+						RDebug::Printf("PH: [pheget] process %u still runs after 30 s", after);
+						}
+					else
+						{
+						timer.Cancel();
+						User::WaitForRequest(timeout);
+						}
+					timer.Close();
+					}
+				else
+					User::WaitForRequest(ended);
+				}
+			waitFor.Close();
+			}
+		RProcess check;
+		TBool ended = check.Open(TProcessId(after)) != KErrNone || check.ExitType() != EExitPending;
+		check.Close();
+		RDebug::Printf("PH: [pheget] process %u %s", after, ended ? "has ended" : "still runs (installing anyway)");
 		}
 
 	TLogObserver log;
@@ -135,17 +187,24 @@ static TInt RunL()
 		}
 	else if (verb == _L("install") && id.Length())
 		{
-		get->LoadIndexesL(index, noDefault);
 		TBuf8<64> id8;
 		id8.Copy(id.Left(64));
-		TPheGetItem item;
-		if (!get->FindL(id8, item))
+		TRAPD(err,                                       // (trapped: -restart starts the app again whatever happens)
+			get->LoadIndexesL(index, noDefault);
+			TPheGetItem item;
+			if (!get->FindL(id8, item))
+				{
+				RDebug::Printf("PH: [pheget] %S: not in any index", &id8);
+				result = KErrNotFound;
+				}
+			else
+				result = get->InstallL(item, drive);
+			);
+		if (err != KErrNone)
 			{
-			RDebug::Printf("PH: [pheget] %S: not in any index", &id8);
-			result = KErrNotFound;
+			RDebug::Printf("PH: [pheget] %S: left %d", &id8, err);
+			result = err;
 			}
-		else
-			result = get->InstallL(item, drive);
 		}
 	else
 		{
@@ -153,6 +212,19 @@ static TInt RunL()
 		result = KErrArgument;
 		}
 	CleanupStack::PopAndDestroy(get);
+	if (restart.Length())
+		{
+		RProcess app;
+		TInt err = app.Create(restart, KNullDesC);
+		if (err == KErrNone)
+			{
+			app.Resume();
+			app.Close();
+			}
+		TBuf8<64> name;
+		name.Copy(restart.Left(64));
+		RDebug::Printf("PH: [pheget] restart %S: %d", &name, err);
+		}
 	return result;
 	}
 

@@ -930,6 +930,34 @@ private:
 		if (!iGet->FindL(*iDetailId, item))
 			return;
 		iLastProgress = -1;
+		// Catalogue itself (its listing's group): SWI shuts down a running exe that a package replaces, so an update
+		// installed from this process would end it in the middle of the install. As the S^3 store did (IAD's
+		// iaupdater.exe), the command line installs it once this process has exited and starts Catalogue again.
+		if (item.iItem && item.iItem->GetStr(_L8("group")) == _L8("catalogue") && item.iRelease
+			&& !iGet->NeedsNewerSystemL(item))
+			{
+			TBuf<160> cmd;
+			TBuf<64> id16;
+			id16.Copy(item.Id().Left(64));
+			cmd.Format(_L("install %S -drive c -after %u -restart phestore.exe"), &id16, (TUint)RProcess().Id().Id());
+			RProcess updater;
+			TInt err = updater.Create(_L("pheget.exe"), cmd);
+			if (err == KErrNone)
+				{
+				TPtrC8 id = item.Id();
+				RDebug::Printf("PH: [phestore] self-update: pheget installs %S after this process", &id);
+				updater.Resume();
+				updater.Close();
+				iView->SetDetailsStatus(_L("Catalogue restarts to finish the update"), EFalse, -1);
+				iView->SetDetailsButton(_L("Updating"), EFalse);
+				// the process must be gone before pheget installs: an orderly Exit() leaves it hanging in shutdown
+				// (job threads, network sessions), and apparc then keeps the old instance. Nothing is left to save
+				// (pheget records installed.txt), so it ends itself here.
+				RProcess().Kill(KErrNone);
+				return;
+				}
+			RDebug::Printf("PH: [phestore] self-update: no pheget (%d), installing in-process", err);
+			}
 		_LIT(KStarting, "Starting");
 		iView->SetDetailsStatus(KStarting, EFalse, 0);
 		iView->SetDetailsButton(_L("Installing"), EFalse);
@@ -954,9 +982,11 @@ private:
 			}
 		else
 			{
-			TBuf<64> msg;
+			TBuf<80> msg;
 			if (result == KErrPheGetNeedsNewerSystem)
 				msg.Copy(_L("Needs a newer system"));
+			else if (result == KPheSwiErrFileInUse)
+				msg.Format(_L("A file it replaces is in use or the system's (%d)"), result);
 			else
 				msg.Format(_L("Install failed (%d)"), result);
 			iView->SetDetailsStatus(msg, ETrue, -1);
