@@ -6,7 +6,8 @@
 # ($PHOREPOC_BUILD/sis/catalogue-<arch>.sis).
 #
 #   ARM  (older Nokia Symbian^3 phones and Phorepoc phones): --arm = the ARM image, targeted at the Symbian^3 platform UID.
-#   x32  (Phorepoc PC images built without Catalogue).
+#   x32  (Phorepoc PC images). --rom-upgrade: the package installs over an image's own Catalogue, which carries a ROM
+#        stub of the same UID (registry rom_stub, pdk tools/rom_stubs.py).
 #
 # The package is unsigned (like the other Phorepoc packages): Phorepoc installs it as it is; a stock phone needs it signed
 # or its installation check lifted (README.md, "Older Symbian phones").
@@ -24,6 +25,6 @@ for f in "$HERE/LICENSES/Apache-2.0.txt" "$HERE/NOTICE"; do
   LIC="$LIC --file $f=!:/resource/catalogue/$b"
 done
 # shellcheck disable=SC2086
-python3 "$PHOREPOC_PDK/tools/make_sis.py" catalogue $AFL --unsigned --version "${PHOREPOC_PACKAGE_VERSION:-1.0.0}" \
+python3 "$PHOREPOC_PDK/tools/make_sis.py" catalogue $AFL --rom-upgrade --unsigned --version "${PHOREPOC_PACKAGE_VERSION:-1.0.0}" \
   --name "Catalogue" --vendor Phorepoc $LIC \
   --out "$PHOREPOC_BUILD/sis/catalogue-$ARCH.sis"

@@ -24,7 +24,12 @@ _SRC = os.path.join(OS_ROOT, "src", "catalogue")
 COMPONENTS = {
     "catalogue": dict(mmp=os.path.join(_SRC, "app", "phestore.mmp"), rom="phestore.exe", sis=True,
                       rom_data=[r"resource\apps\phestore_icon.mbm=" + os.path.join(_SRC, "app", "data", "phestore_icon.mbm"),
-                                r"resource\apps\phestore_banner.mbm=" + os.path.join(_SRC, "app", "data", "phestore_banner.mbm")]),
+                                r"resource\apps\phestore_banner.mbm=" + os.path.join(_SRC, "app", "data", "phestore_banner.mbm")],
+                      # an image that carries Catalogue also carries a ROM stub listing these files (pdk tools/rom_stubs.py), so
+                      # the Catalogue SIS (recipes/sis.sh, --rom-upgrade) installs over the image's copy
+                      rom_stub=dict(name="Catalogue", files=[r"sys\bin\phestore.exe", r"resource\apps\phestore.rsc",
+                                                             r"resource\apps\phestore_icon.mbm", r"resource\apps\phestore_banner.mbm",
+                                                             r"private\10003a3f\import\apps\phestore_reg.rsc"])),
     "catalogue_get": dict(mmp=os.path.join(_SRC, "engine", "pheget.mmp"), rom="pheget.exe"),
     "catalogue_gettest": dict(mmp=os.path.join(_SRC, "tests", "phegettest.mmp"), rom="phegettest.exe", test=True),
 }
