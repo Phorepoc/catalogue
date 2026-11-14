@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // phegettest.mmp -- OURS: the software-source tests of the download engine (phegettest.cpp), over the engine itself
 #include <platform_paths.hrh>

@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // phestore.cpp -- OURS: the download app ("Catalogue"). A full-screen, custom-drawn list of the items of the indexes
 // that fit this device (pheui.cpp: header, 83 px rows, kinetic scrolling, details page; pheicons.cpp: lazy icons), over

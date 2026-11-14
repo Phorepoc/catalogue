@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // phegettest.cpp -- OURS: tests of the download engine's software sources (../pheget): validation, add / remove,
 // the default index switched off (only while another source exists), the index caches staying with their own source,

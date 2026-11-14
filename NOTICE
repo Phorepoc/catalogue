@@ -3,5 +3,11 @@ Copyright The Phorepoc Authors (see AUTHORS)
 
 Phorepoc was founded by Kyriakos Bompotis.
 
-All files are licensed under the Apache License 2.0 (LICENSE, LICENSES/Apache-2.0.txt). The app is our own code. It is
+All files are licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only, LICENSE), with the additional terms in ADDITIONAL-TERMS.md (section 7(b) attributions, section 7(e) names and logos). The app is our own code. It is
 built against the Symbian platform headers and libraries of the build it is part of, none of which are copied here.
+
+Licensing. The Phorepoc code is AGPL-3.0-only with additional terms under its section 7 (ADDITIONAL-TERMS.md):
+the attribution "Phorepoc, founded by Kyriakos Bompotis" and these notices must be kept, also where a work based on
+it shows legal notices; no rights are granted to the Phorepoc names and logos (TRADEMARKS.md). It is dual-licensed:
+commercial licences are available from the founder (see README.md, "Licensing"). Third-party code keeps its own
+licence and header.

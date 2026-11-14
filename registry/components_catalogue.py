@@ -1,5 +1,5 @@
 # Copyright The Phorepoc Authors
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 
 """components_catalogue -- Catalogue's components (merged into core's registry when this repository is a layer:
 PHOREPOC_ADAPTATIONS=<board adaptations>:<path to catalogue>, see the pdk's tools/emitter/paths.py). Paths are relative

@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // pheicons.h -- OURS: Catalogue's lazy icon loader. One icon at a time, never while the list is moving: the nearest
 // visible row that has no icon yet is fetched into the persistent cache (c:\data\pheget\icons\<hash>.png), decoded

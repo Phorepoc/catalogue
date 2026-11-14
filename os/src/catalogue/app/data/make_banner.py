@@ -1,5 +1,5 @@
 # Copyright The Phorepoc Authors
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 """make_banner.py -- renders Catalogue's Home welcome banner: our own art, the Etesian design language
 (https://language.etesian-design.com): the app tile's blue (#306EBD -> #15259A), soft light from the upper left, one
 open catalogue in the tile glyph's cream (#F6F8ED -> #D0C9C6), its pages showing app tiles, at the right (the right

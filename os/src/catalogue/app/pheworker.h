@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // pheworker.h -- OURS: network jobs of Catalogue on their own threads. A TLS handshake or a transfer must never run
 // on the UI thread (it would freeze touch and animation for seconds on a slow CPU), so each job is a short-lived

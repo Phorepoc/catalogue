@@ -1,5 +1,5 @@
 // Copyright The Phorepoc Authors
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // pheui.h -- OURS: Catalogue's own full-screen view. One CCoeControl that draws everything itself (CWindowGc, through an
 // off-screen bitmap, so nothing flickers): a header, a list of fixed-height rows with kinetic touch scrolling and key
