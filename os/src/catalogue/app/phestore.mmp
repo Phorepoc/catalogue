@@ -24,7 +24,7 @@ TARGETPATH		/resource/apps
 END
 
 START RESOURCE	phestore_reg.rss
-TARGETPATH		/private/10003a3f/apps
+TARGETPATH		/private/10003a3f/import/apps
 END
 
 USERINCLUDE		. ../engine
