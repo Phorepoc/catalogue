@@ -376,7 +376,7 @@ public:
 			case EScopeMine:
 				{
 				TBuf8<32> installed;
-				TRAPD(err, iGet->InstalledTagL(iItems[i].Id(), installed));
+				TRAPD(err, iGet->InstalledTagL(iItems[i], installed));
 				in = err == KErrNone && installed.Length() > 0;
 				break;
 				}
@@ -432,7 +432,7 @@ public:
 			{
 			const TPheGetItem& it = iItems[iVisible[r]];
 			TBuf8<32> installed;
-			TRAPD(err, iGet->InstalledTagL(it.Id(), installed));
+			TRAPD(err, iGet->InstalledTagL(it, installed));
 			TInt state = TPheRow::EFree;
 			if (err == KErrNone && installed.Length())
 				state = (installed == it.Tag()) ? TPheRow::EInstalled : TPheRow::EUpdate;
@@ -815,7 +815,7 @@ private:
 	void AddRowL(const TPheGetItem& aItem)
 		{
 		TBuf8<32> installed;
-		iGet->InstalledTagL(aItem.Id(), installed);
+		iGet->InstalledTagL(aItem, installed);
 		TBuf<96> name;
 		TBuf<160> info;
 		TBuf<48> tag;
@@ -895,7 +895,7 @@ private:
 			}
 		TInt state = TPheRow::EFree;
 		TBuf8<32> installed;
-		iGet->InstalledTagL(it.Id(), installed);
+		iGet->InstalledTagL(it, installed);
 		if (installed.Length())
 			state = (installed == it.Tag()) ? TPheRow::EInstalled : TPheRow::EUpdate;
 		TPtrC button = _L("Install");
@@ -1005,6 +1005,18 @@ private:
 		{
 		CAknAppUi::DynInitMenuPaneL(aResourceId, aMenuPane);
 		RDebug::Printf("PH: [phestore] ui: options");
+		}
+
+	// brought back while still running (task switcher, the browser's "Get a browser engine"): the index may have moved on since
+	// the start-up refresh -- fetch it again (the rows are rebuilt only when it changed)
+	void HandleForegroundEventL(TBool aForeground)
+		{
+		CAknAppUi::HandleForegroundEventL(aForeground);
+		if (aForeground && iPhase == EPhaseIdle && iItems.Count() > 0)
+			{
+			iPhase = EPhaseRefresh;
+			Schedule();
+			}
 		}
 
 	void HandleCommandL(TInt aCommand)

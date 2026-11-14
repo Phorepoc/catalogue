@@ -28,6 +28,7 @@ TPtrC8 TPheGetItem::Name() const { return iItem->GetStr(_L8("name")); }
 TPtrC8 TPheGetItem::Summary() const { return iItem->GetStr(_L8("summary")); }
 TPtrC8 TPheGetItem::Category() const { return iItem->GetStr(_L8("category")); }
 TPtrC8 TPheGetItem::Tag() const { return iRelease ? iRelease->GetStr(_L8("tag")) : TPtrC8(KNullDesC8); }
+TPtrC8 TPheGetItem::Group() const { return iItem->GetStr(_L8("group")); }
 
 // ---- construction
 
@@ -1044,6 +1045,22 @@ void CPheGet::InstalledTagL(const TDesC8& aId, TDes8& aTag)
 		if (id == aId)
 			aTag = tag.Left(aTag.MaxLength());
 		}
+	}
+
+void CPheGet::InstalledTagL(const TPheGetItem& aItem, TDes8& aTag)
+	{
+	InstalledTagL(aItem.Id(), aTag);
+	const TPtrC8 group = aItem.Group();
+	if (aTag.Length() || group.Length() == 0 || group.Length() > 64)
+		return;
+	TFileName stub(_L("z:\\system\\install\\"));   // a fresh image: the browser is in it, but Catalogue never installed it
+	TBuf<64> g;
+	g.Copy(group);
+	stub.Append(g);
+	stub.Append(_L("_stub.sis"));
+	TEntry e;
+	if (iFs.Entry(stub, e) == KErrNone)
+		aTag = KPheGetInImage;
 	}
 
 void CPheGet::RecordInstalledL(const TDesC8& aId, const TDesC8& aTag)

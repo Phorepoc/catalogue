@@ -40,7 +40,10 @@ public:
 	TPtrC8 Summary() const;
 	TPtrC8 Category() const;
 	TPtrC8 Tag() const;
+	TPtrC8 Group() const;           // the listing's group: the package across its arches (phebrowser for phebrowser-x32)
 	};
+
+_LIT8(KPheGetInImage, "image");     // InstalledTagL: no install record, the image's own copy
 
 class MPheGetObserver
 	{
@@ -79,6 +82,9 @@ public:
 	TInt InstallL(const TPheGetItem& aItem, TChar aDrive);
 	// The installed tag of an item (recorded by InstallL), or empty.
 	void InstalledTagL(const TDesC8& aId, TDes8& aTag);
+	// The same for an item, and with no record but the image carrying its group (its ROM stub, z:\system\install\<group>_stub.sis,
+	// tools/rom_stubs.py) the tag KPheGetInImage: on the device, and any release replaces it (an update).
+	void InstalledTagL(const TPheGetItem& aItem, TDes8& aTag);
 	// The image's core version (device.txt "core=", YYYY.MM.DD.HHMMSS from the pdk), or empty (unknown: nothing is checked).
 	const TDesC8& Core() const { return iCore; }
 	// ETrue when the item, or a listing it requires (not yet installed), has a compatibility.min_core above Core().
