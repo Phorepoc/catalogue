@@ -264,9 +264,10 @@ void CPheCatalogueView::SetLoad(TLoad aLoad, const TDesC& aMessage)
 	}
 
 // the frame cost, logged every 60 frames: render (into iFrame) and the push to the screen (DrawNow), mean and worst
-static TInt64 FastUs()
+// (User::FastCounter is 32 bits and wraps: differences are taken unsigned, then scaled)
+static TInt FastDeltaUs(TUint32 aFrom, TUint32 aTo)
 	{
-	return TInt64(User::FastCounter()) * 1000000 / FastFreq();
+	return TInt(TInt64(TUint32(aTo - aFrom)) * 1000000 / FastFreq());
 	}
 // Home has no title line: the banner (header height + iPad) is the title, and the left bar button closes the app
 void CPheCatalogueView::SetHome(TBool aHome)
@@ -404,13 +405,13 @@ void CPheCatalogueView::Redraw()
 	{
 	if (!iFrame)
 		return;
-	TInt64 t0 = FastUs();
+	const TUint32 t0 = User::FastCounter();
 	Render();
-	TInt64 t1 = FastUs();
+	const TUint32 t1 = User::FastCounter();
 	if (IsActivated() && IsVisible())
 		DrawNow();
-	TInt64 t2 = FastUs();
-	TInt r = TInt(t1 - t0), d = TInt(t2 - t1);
+	const TUint32 t2 = User::FastCounter();
+	TInt r = FastDeltaUs(t0, t1), d = FastDeltaUs(t1, t2);
 	iPerfR += r;
 	iPerfD += d;
 	iPerfRMax = Max(iPerfRMax, r);
