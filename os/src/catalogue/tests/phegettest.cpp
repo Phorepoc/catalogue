@@ -279,6 +279,47 @@ static void TestLoadingL(RFs& aFs, CPheGet& aGet)
 	CHECK(r == KErrNone && !changed);
 	}
 
+// compatibility.builtin_on_phorepoc: on a Phorepoc image (device.txt exists) the listing is left out of ItemsL and InstallL
+// refuses it; on any other phone it is an ordinary item. ItemsL(..., ETrue) always has it.
+static void TestBuiltInL(RFs& aFs, CPheGet& aGet)
+	{
+	_LIT8(KJson, "{\"items\":["
+		"{\"id\":\"plain\",\"name\":\"Plain\",\"compatibility\":{\"arch\":[\"x32\",\"arm\"]}},"
+		"{\"id\":\"builtin\",\"name\":\"Built in\",\"compatibility\":{\"arch\":[\"x32\",\"arm\"],\"builtin_on_phorepoc\":true}},"
+		"{\"id\":\"notbuiltin\",\"name\":\"Not\",\"compatibility\":{\"arch\":[\"x32\",\"arm\"],\"builtin_on_phorepoc\":false}}]}");
+	WriteFileL(aFs, KLocalA, KJson);
+	TRAP_IGNORE(aGet.AddSourceL(KLocalA));                // (the earlier test may have left it listed)
+	aGet.SetDefaultIndexL(EFalse);
+	aGet.ResetIndexes();
+	aGet.LoadIndexesL(KNullDesC, EFalse, ETrue);
+	RArray<TPheGetItem> shown;
+	CleanupClosePushL(shown);
+	aGet.ItemsL(shown, EFalse);
+	RArray<TPheGetItem> all;
+	CleanupClosePushL(all);
+	aGet.ItemsL(all, ETrue);
+	CHECK(all.Count() == 3);
+	TBool builtinShown = EFalse;
+	for (TInt i = 0; i < shown.Count(); ++i)
+		if (shown[i].Id() == _L8("builtin"))
+			builtinShown = ETrue;
+	CHECK(builtinShown != aGet.IsPhorepoc());            // hidden exactly on a Phorepoc image
+	CHECK(shown.Count() == (aGet.IsPhorepoc() ? 2 : 3));
+	TPheGetItem item;
+	CHECK(aGet.FindL(_L8("builtin"), item));             // (a lookup by id still finds it)
+	CHECK(CPheGet::BuiltInOnPhorepoc(item.iItem));
+	CHECK(aGet.HiddenHere(item.iItem) == aGet.IsPhorepoc());
+	if (aGet.IsPhorepoc())
+		{
+		TInt r = KErrNone;
+		TRAPD(leave, r = aGet.InstallL(item, 'c'));
+		CHECK(leave == KErrNone && r == KErrPheGetBuiltIn);
+		}
+	CHECK(aGet.FindL(_L8("notbuiltin"), item) && !CPheGet::BuiltInOnPhorepoc(item.iItem));
+	CleanupStack::PopAndDestroy(2, &shown);
+	aGet.ResetIndexes();
+	}
+
 static void CleanupFiles(RFs& aFs)
 	{
 	aFs.Delete(KLocalA);
@@ -313,6 +354,9 @@ static TInt RunL()
 	CHECK(r == KErrNone);
 	fs.Delete(KIndexes);
 	TRAP(r, TestLoadingL(fs, *get));
+	CHECK(r == KErrNone);
+	fs.Delete(KIndexes);
+	TRAP(r, TestBuiltInL(fs, *get));
 	CHECK(r == KErrNone);
 	CleanupStack::PopAndDestroy(get);
 

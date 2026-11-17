@@ -985,6 +985,8 @@ private:
 			TBuf<80> msg;
 			if (result == KErrPheGetNeedsNewerSystem)
 				msg.Copy(_L("Needs a newer system"));
+			else if (result == KErrPheGetBuiltIn)
+				msg.Copy(_L("Built into the system"));
 			else if (result == KPheSwiErrFileInUse)
 				msg.Format(_L("A file it replaces is in use or the system's (%d)"), result);
 			else

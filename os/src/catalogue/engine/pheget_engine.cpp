@@ -102,6 +102,7 @@ void CPheGet::ReadDeviceL()
 	TRAPD(err, text = ReadFileL(iFs, KPheGetDeviceFile));
 	if (err != KErrNone)
 		return;
+	iPhorepoc = ETrue;                       // only Phorepoc images carry the file
 	TLex8 lex(*text);
 	while (!lex.Eos())
 		{
@@ -534,6 +535,13 @@ static const CPheJson* NewestRelease(const CPheJson& aItem)
 	return best;
 	}
 
+TBool CPheGet::BuiltInOnPhorepoc(const CPheJson* aItem)
+	{
+	const CPheJson* compat = aItem ? aItem->Get(_L8("compatibility")) : NULL;
+	const CPheJson* flag = compat ? compat->Get(_L8("builtin_on_phorepoc")) : NULL;
+	return flag && flag->Type() == CPheJson::EBool && flag->Bool();
+	}
+
 void CPheGet::ItemsL(RArray<TPheGetItem>& aItems, TBool aAll)
 	{
 	for (TInt x = 0; x < iIndexes.Count(); ++x)
@@ -546,6 +554,8 @@ void CPheGet::ItemsL(RArray<TPheGetItem>& aItems, TBool aAll)
 				continue;
 			if (!aAll)
 				{
+				if (HiddenHere(&it))             // Phorepoc OS has it itself: neither listed nor searched
+					continue;
 				const CPheJson* compat = it.Get(_L8("compatibility"));
 				const CPheJson* arch = compat ? compat->Get(_L8("arch")) : NULL;
 				const CPheJson* boards = compat ? compat->Get(_L8("boards")) : NULL;
@@ -884,7 +894,7 @@ TBool CPheGet::NeedsNewerSystemL(const TPheGetItem& aItem)
 		TBuf8<64> have;
 		InstalledTagL(req->At(i).Str(), have);
 		TPheGetItem dep;
-		if (have.Length() || !FindL(req->At(i).Str(), dep))
+		if (have.Length() || !FindL(req->At(i).Str(), dep) || HiddenHere(dep.iItem))
 			continue;
 		++iDepth;
 		TRAPD(err, newer = NeedsNewerSystemL(dep));
@@ -897,6 +907,11 @@ TBool CPheGet::NeedsNewerSystemL(const TPheGetItem& aItem)
 TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 	{
 	TPtrC8 id = aItem.Id();
+	if (HiddenHere(aItem.iItem))
+		{
+		Log(_L8("%S: built into this system, not installed"), &id);
+		return KErrPheGetBuiltIn;
+		}
 	if (!aItem.iRelease)
 		{
 		Log(_L8("%S: no approved release"), &id);
@@ -933,6 +948,8 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 				Log(_L8("%S needs %S, which no loaded index lists"), &id, &rid);
 				return KErrNotFound;
 				}
+			if (HiddenHere(dep.iItem))      // the image has it: the requirement is met
+				continue;
 			Log(_L8("%S needs %S: installing it first"), &id, &rid);
 			++iDepth;
 			TInt derr = KErrNone;

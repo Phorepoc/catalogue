@@ -24,6 +24,8 @@ _LIT(KPheGetDir, "c:\\data\\pheget\\");                          // indexes.txt 
 _LIT(KPheGetDownloads, "c:\\data\\installs\\");                  // the package cache (prefill = offline installs)
 // InstallL's answer when a listing (or one it requires) names a compatibility.min_core above the image's core= (device.txt)
 const TInt KErrPheGetNeedsNewerSystem = -46201;
+// InstallL's answer for a listing with compatibility.builtin_on_phorepoc on a Phorepoc image: the image provides it itself
+const TInt KErrPheGetBuiltIn = -46202;
 // SWI's KSWInstErrFileInUse (SWInstDefs.h): a file the package would install is in use, or the image's own copy of it
 // has no ROM stub that lets the package replace it (KErrInvalidEclipsing)
 const TInt KPheSwiErrFileInUse = -30477;
@@ -60,6 +62,13 @@ public:
 
 	const TDesC8& Board() const { return iBoard; }
 	const TDesC8& Arch() const { return iArch; }
+	// ETrue on a Phorepoc image: the adaptation's device.txt exists (a stock phone has none).
+	TBool IsPhorepoc() const { return iPhorepoc; }
+	// ETrue when the listing says compatibility.builtin_on_phorepoc: Phorepoc OS provides the item itself.
+	static TBool BuiltInOnPhorepoc(const CPheJson* aItem);
+	// ETrue when this device is a Phorepoc one and the item is built in: such items are left out of ItemsL (unless aAll)
+	// and never installed (InstallL: KErrPheGetBuiltIn), and a "requires" of one counts as met.
+	TBool HiddenHere(const CPheJson* aItem) const { return iPhorepoc && BuiltInOnPhorepoc(aItem); }
 
 	// Loads aExtra (may be empty), the default index (unless aNoDefault, or switched off while another source exists)
 	// and the sources in c:\data\pheget\indexes.txt.
@@ -132,6 +141,7 @@ private:
 	TBuf8<32> iBoard;
 	TBuf8<16> iArch;
 	TBuf8<32> iCore;                           // device.txt core= (empty = unknown)
+	TBool iPhorepoc;                           // device.txt exists: a Phorepoc image
 	RPointerArray<CPheJson> iIndexes;
 	HBufC8* iInstalledText;                    // installed.txt, read once (InstalledTagL)
 	TBool iInstalledLoaded;

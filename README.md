@@ -44,6 +44,14 @@ the same architecture, built without Catalogue (`-O rom-exclude=<its key>` if th
 The archive has to be reachable from the toolchain container (the build volume). `phe image addon -arch arm catalogue`
 makes one from a local build.
 
+## What Phorepoc OS already has
+
+A listing can say `compatibility.builtin_on_phorepoc` (the index's schema): the Phorepoc OS image provides the item itself,
+and ships a ROM stub package of the listing's UID (for example the TLS drop-in for older phones, whose own `SSL.DLL` is in
+the image). On a Phorepoc image, which is a device with `z:\resource\phorepoc\device.txt`, Catalogue leaves such a listing
+out of every list and search, and `pheget install` answers it with `-46202` ("Built into the system"); another item that
+`requires` it counts it as met. On any other phone the listing is an ordinary one. `pheget list -all` shows it anyway.
+
 ## Older Symbian phones
 
 `catalogue-arm.sis` is an ARM build for the Symbian^3 platform, so it also installs on the older Nokia Symbian^3 phones
