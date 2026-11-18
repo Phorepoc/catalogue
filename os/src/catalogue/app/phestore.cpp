@@ -20,6 +20,8 @@
 #include <utf.h>
 #include <aknquerydialog.h>
 #include <badesca.h>
+#include <apgcli.h>
+#include <apacmdln.h>
 #include <avkon.rsg>
 #include <phestore.rsg>
 #include "phestore.hrh"
@@ -95,11 +97,25 @@ public:
 	void PheGetLog(const TDesC8& aLine) { RDebug::Printf("PH: [phestore] %S", &aLine); }
 	void PheGetProgress(TInt aDone, TInt aTotal)
 		{
-		if (iView->Mode() == CPheCatalogueView::EDetails && aTotal < 0)
+		if (iView->Mode() != CPheCatalogueView::EDetails)
+			return;
+		if (aTotal < 0)                                // -1 SWI installs, -2 SWI removes: no percentage, a moving bar
 			{
 			iLastProgress = -1;
-			_LIT(KInstalling, "Installing");
-			iView->SetDetailsStatus(KInstalling, EFalse, -1);
+			iView->SetDetailsStatus(aTotal == -1 ? _L("Installing\x2026") : _L("Removing\x2026"), EFalse,
+				CPheCatalogueView::KProgressBusy);
+			return;
+			}
+		if (aTotal == 0)                               // no Content-Length: the bytes so far, a moving bar
+			{
+			TInt mb10 = TInt(TInt64(aDone) * 10 / (1024 * 1024));
+			if (mb10 != iLastProgress)
+				{
+				iLastProgress = mb10;
+				TBuf<48> s;
+				s.Format(_L("Downloading %d.%d MB"), mb10 / 10, mb10 % 10);
+				iView->SetDetailsStatus(s, EFalse, CPheCatalogueView::KProgressBusy);
+				}
 			return;
 			}
 		if (iView->Mode() == CPheCatalogueView::EDetails && aTotal > 0)
@@ -148,10 +164,28 @@ public:
 	// ---- the toolbar's tabs. Every tab is the same list over a different selection of the items (iScope): Home = all,
 	// Categories = the tags the listings carry (a tap on one lists its apps), Search = the items matching the words typed
 	// into the Search dialog (name, summary, id, category, tags), My apps = the items that are installed
-	enum TScope { EScopeCategories, EScopeAll, EScopeTag, EScopeSearch, EScopeMine };   // (Home first: the start page)
+	// Updates = the installed items whose approved release differs from the installed one (the tab's badge counts them)
+	enum TScope { EScopeCategories, EScopeAll, EScopeTag, EScopeSearch, EScopeMine, EScopeUpdates };   // (Home first: the start page)
 	static TInt TabOfScope(TInt aScope)
 		{
-		return (aScope == EScopeCategories || aScope == EScopeTag) ? 0 : aScope == EScopeAll ? 1 : aScope == EScopeSearch ? 2 : 3;
+		return (aScope == EScopeCategories || aScope == EScopeTag) ? 0 : aScope == EScopeAll ? 1 : aScope == EScopeSearch ? 2
+			: aScope == EScopeUpdates ? 4 : 3;
+		}
+	TBool HasUpdate(const TPheGetItem& aItem)
+		{
+		if (!aItem.iRelease)
+			return EFalse;
+		TBuf8<32> installed;
+		TRAPD(err, iGet->InstalledTagL(aItem, installed));
+		return err == KErrNone && installed.Length() > 0 && installed != aItem.Tag();
+		}
+	void CountUpdates()
+		{
+		TInt n = 0;
+		for (TInt i = 0; i < iItems.Count(); ++i)
+			if (HasUpdate(iItems[i]))
+				++n;
+		iView->SetUpdateCount(n);
 		}
 	void UiTab(TInt aTab)
 		{
@@ -163,6 +197,7 @@ public:
 			if (!iSearch->IsActive())
 				iSearch->CallBack();                   // out of the pointer event: the dialog runs a nested loop
 			break;
+		case 4: SetScope(EScopeUpdates); break;
 		default: SetScope(EScopeMine); break;
 			}
 		}
@@ -223,6 +258,10 @@ public:
 		case EScopeMine:
 			title.Copy(_L("My apps"));
 			empty.Set(_L("Nothing installed from Catalogue yet"));
+			break;
+		case EScopeUpdates:
+			title.Copy(_L("Updates"));
+			empty.Set(_L("Everything is up to date"));
 			break;
 		default:
 			title.Copy(_L("Catalogue"));
@@ -387,6 +426,7 @@ public:
 				in = err == KErrNone && installed.Length() > 0;
 				break;
 				}
+			case EScopeUpdates: in = HasUpdate(iItems[i]); break;
 			default: break;
 				}
 			if (in)
@@ -422,8 +462,9 @@ public:
 		else if (iMineDirty)                               // something was installed: My apps has one more
 			{
 			iMineDirty = EFalse;
-			if (iScope == EScopeMine)
-				SetScope(EScopeMine);
+			CountUpdates();
+			if (iScope == EScopeMine || iScope == EScopeUpdates)
+				SetScope(TScope(iScope));
 			else
 				RefreshRowStates();
 			}
@@ -776,6 +817,7 @@ private:
 		TRAPD(err, iGet->ItemsL(iItems, EFalse));
 		if (err != KErrNone)
 			iItems.Reset();
+		CountUpdates();
 		ComputeVisible();
 		iView->ClearRows();
 		SetBanner();                                   // (the index may have one now)
@@ -925,6 +967,7 @@ private:
 		else if (state == TPheRow::EUpdate)
 			button.Set(_L("Update"));
 		iView->ShowDetailsL(aRow, name, meta, *body, button, on);
+		SetExtras(it);
 		CleanupStack::PopAndDestroy(3, desc);
 		Cba()->SetCommandSetL(R_PHESTORE_CBA_DETAILS);
 		}
@@ -943,6 +986,29 @@ private:
 		if (item.iItem && item.iItem->GetStr(_L8("group")) == _L8("catalogue") && item.iRelease
 			&& !iGet->NeedsNewerSystemL(item))
 			{
+			// the download (and its bar) happens here first; pheget then finds the package cached and only installs it
+			iView->SetDetailsStatus(_L("Starting"), EFalse, 0);
+			iView->SetDetailsButton(_L("Updating"), EFalse);
+			++iBusy;
+			TFileName pkg;
+			TInt ferr = KErrNone;
+			TRAPD(fleave, ferr = iGet->FetchPackageL(item, pkg));
+			--iBusy;
+			if (fleave != KErrNone)
+				ferr = fleave;
+			if (iExitPending)
+				{
+				Exit();
+				return;
+				}
+			if (ferr != KErrNone)
+				{
+				TBuf<64> msg;
+				msg.Format(_L("Download failed (%d)"), ferr);
+				iView->SetDetailsStatus(msg, ETrue, -1);
+				iView->SetDetailsButton(_L("Try again"), ETrue);
+				return;
+				}
 			TBuf<160> cmd;
 			TBuf<64> id16;
 			id16.Copy(item.Id().Left(64));
@@ -986,6 +1052,8 @@ private:
 			iView->SetDetailsButton(_L("Installed"), EFalse);
 			iView->UpdateRow(row, TPheRow::EInstalled);
 			iMineDirty = ETrue;
+			SetExtras(item);
+			CountUpdates();
 			}
 		else
 			{
@@ -1000,6 +1068,104 @@ private:
 				msg.Format(_L("Install failed (%d)"), result);
 			iView->SetDetailsStatus(msg, ETrue, -1);
 			iView->SetDetailsButton(_L("Try again"), ETrue);
+			}
+		}
+
+	// Open = the installed package has an application of its UID (apparc knows it); the bin = installed from Catalogue
+	// (not the image's own copy, not Catalogue itself) with its package UID known
+	TUid AppUidOf(const TPheGetItem& aItem, TApaAppInfo& aInfo)
+		{
+		TUint32 uid = 0;
+		TRAP_IGNORE(uid = iGet->PackageUidL(aItem));
+		if (!uid)
+			return KNullUid;
+		RApaLsSession ls;
+		if (ls.Connect() != KErrNone)
+			return KNullUid;
+		TInt r = ls.GetAppInfo(aInfo, TUid::Uid(uid));
+		ls.Close();
+		return r == KErrNone ? TUid::Uid(uid) : KNullUid;
+		}
+	void SetExtras(const TPheGetItem& aItem)
+		{
+		TBuf8<32> installed;
+		TRAPD(err, iGet->InstalledTagL(aItem, installed));
+		TBool mine = err == KErrNone && installed.Length() > 0 && installed != KPheGetInImage;
+		TBool self = aItem.iItem && aItem.iItem->GetStr(_L8("group")) == _L8("catalogue");
+		TApaAppInfo info;
+		TBool open = mine && !self && AppUidOf(aItem, info) != KNullUid;
+		TUint32 uid = 0;
+		if (mine && !self)
+			TRAP_IGNORE(uid = iGet->PackageUidL(aItem));
+		iView->SetDetailsExtras(open, uid != 0);
+		}
+	void UiOpenApp()
+		{
+		TPheGetItem item;
+		if (iBusy || !iDetailId || !iGet->FindL(*iDetailId, item))
+			return;
+		TApaAppInfo info;
+		TUid app = AppUidOf(item, info);
+		if (app == KNullUid)
+			return;
+		RApaLsSession ls;
+		if (ls.Connect() != KErrNone)
+			return;
+		CApaCommandLine* cmd = NULL;
+		TRAPD(err, cmd = CApaCommandLine::NewL());
+		if (err == KErrNone)
+			{
+			TRAP(err, cmd->SetExecutableNameL(info.iFullName); cmd->SetCommandL(EApaCommandRun));
+			if (err == KErrNone)
+				err = ls.StartApp(*cmd);
+			delete cmd;
+			}
+		ls.Close();
+		RDebug::Printf("PH: [phestore] open 0x%08x -> %d", app.iUid, err);
+		}
+	void UiUninstall()
+		{
+		TPheGetItem item;
+		if (iBusy || !iDetailId || !iGet->FindL(*iDetailId, item))
+			return;
+		TBuf<128> q;
+		TBuf<96> name;
+		CnvUtfConverter::ConvertToUnicodeFromUtf8(name, (item.Name().Length() ? item.Name() : item.Id()).Left(90));
+		q.Format(_L("Uninstall %S?"), &name);
+		CAknQueryDialog* dlg = NULL;
+		TRAPD(qerr, dlg = CAknQueryDialog::NewL());
+		TInt ok = 0;
+		if (qerr == KErrNone)
+			TRAP(qerr, ok = dlg->ExecuteLD(R_PHESTORE_CONFIRM_QUERY, q));
+		if (qerr != KErrNone || !ok)
+			return;
+		iView->SetDetailsExtras(EFalse, EFalse);
+		iView->SetDetailsButton(_L("Removing"), EFalse);
+		++iBusy;
+		TInt result = KErrGeneral;
+		TRAPD(err, result = iGet->UninstallL(item));
+		--iBusy;
+		if (err != KErrNone)
+			result = err;
+		if (iExitPending)
+			{
+			Exit();
+			return;
+			}
+		if (result == KErrNone)
+			{
+			iView->SetDetailsStatus(_L("Uninstalled"), EFalse, -1);
+			iView->SetDetailsButton(_L("Install"), ETrue);
+			iView->UpdateRow(iView->DetailsRow(), TPheRow::EFree);
+			iMineDirty = ETrue;
+			CountUpdates();
+			}
+		else
+			{
+			TBuf<64> msg;
+			msg.Format(_L("Uninstall failed (%d)"), result);
+			iView->SetDetailsStatus(msg, ETrue, -1);
+			SetExtras(item);
 			}
 		}
 

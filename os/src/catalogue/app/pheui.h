@@ -33,7 +33,9 @@ public:
 	virtual void UiSourceAdd() = 0;              // "Add source"
 	// the toolbar's tabs: the application decides which rows each one shows (all / categories / search / installed)
 	virtual void UiTab(TInt aTab) = 0;           // a tab was chosen (0 Home, 1 Categories, 2 Search, 3 My apps); chosen again = its start
-	virtual void UiTabBack() = 0;                // back on a tab page (a category's apps -> the categories, anything else -> Home)
+	virtual void UiTabBack() = 0;
+	virtual void UiOpenApp() = 0;                // the details page's Open: start the installed app
+	virtual void UiUninstall() = 0;              // the details page's bin: remove the installed package                // back on a tab page (a category's apps -> the categories, anything else -> Home)
 	};
 
 // One row of the Sources page.
@@ -91,6 +93,9 @@ public:
 	void ShowDetailsL(TInt aRow, const TDesC& aTitle, const TDesC& aMeta, const TDesC& aBody, const TDesC& aButton, TBool aButtonOn);
 	void SetDetailsStatus(const TDesC& aStatus, TBool aError, TInt aProgress);   // aProgress -1 = no bar, else 0..1000
 	void SetDetailsButton(const TDesC& aButton, TBool aEnabled);
+	void SetDetailsExtras(TBool aOpen, TBool aRemove);   // the Open button and the bin under the main button
+	void SetUpdateCount(TInt aCount);               // the Updates tab's badge (shown above 0)
+	enum { KProgressBusy = -2 };                    // SetDetailsStatus: an indeterminate (moving) bar
 	void ShowList();
 	TMode Mode() const { return iMode; }
 
@@ -156,6 +161,8 @@ private:
 	void DrawSpinner(const TPoint& aCentre, TInt aRadius);
 	void DrawButton(const TRect& aRect, const TDesC& aLabel, TBool aEnabled);
 	void DrawProgress(const TRect& aRect, TInt aPermille);
+	void DrawBin(const TRect& aRect, TBool aPressed);
+	void DrawBadge(const TPoint& aCentre, TInt aCount);
 	void DrawEmpty(const TDesC& aMessage, TBool aError, TBool aButton);
 	TInt WrappedLines(const TDesC& aText, const CFont& aFont, TInt aWidth) const;
 	void DrawWrapped(const TDesC& aText, const CFont& aFont, TInt aX, TInt& aY, TInt aWidth, TRgb aColour);
@@ -190,7 +197,9 @@ private:
 	// geometry (pixels)
 	TInt iScale;                // x256
 	TInt iBarH;                 // the toolbar's height
-	TInt iTab;                  // 0 Home, 1 Categories, 2 Search, 3 My apps
+	TInt iTab;                  // 0 Home, 1 Categories, 2 Search, 3 My apps, 4 Updates
+	TInt iUpdateCount;          // the Updates tab's badge
+	TInt iBusyPhase;            // the indeterminate bar's position, 0..999
 	TInt iBarDown;              // the toolbar cell under the finger, or -1
 	TInt iHeaderH, iRowH, iIconPx, iMargin, iDividerCount;
 	CFont* iFTitle;             // 22
@@ -259,6 +268,9 @@ private:
 	TBool iDButtonOn, iDStatusError, iDButtonDown;
 	TInt iDProgress;
 	TRect iDButtonRect;
+	TBool iDOpen, iDRemove;     // the Open button / the bin are shown
+	TRect iDOpenRect, iDRemoveRect;
+	TInt iDExtraDown;           // 1 = Open, 2 = the bin under the finger, 0 = none
 	TRect iRetryRect;
 	TBool iRetryDown;
 	};

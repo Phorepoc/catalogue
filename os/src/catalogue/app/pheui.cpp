@@ -441,6 +441,8 @@ void CPheCatalogueView::ShowDetailsL(TInt aRow, const TDesC& aTitle, const TDesC
 	delete iDStatus;
 	iDStatus = NULL;
 	iDProgress = -1;
+	iDOpen = iDRemove = EFalse;
+	iDExtraDown = 0;
 	iDButtonOn = aButtonOn;
 	iDButtonDown = EFalse;
 	iDetailRow = aRow;
@@ -459,7 +461,75 @@ void CPheCatalogueView::SetDetailsStatus(const TDesC& aStatus, TBool aError, TIn
 	iDStatus = aStatus.Length() ? aStatus.Alloc() : NULL;
 	iDStatusError = aError;
 	iDProgress = aProgress;
+	if (aProgress == KProgressBusy)
+		StartTicking();                             // (Tick moves the bar while it is shown)
 	Redraw();
+	}
+
+void CPheCatalogueView::SetDetailsExtras(TBool aOpen, TBool aRemove)
+	{
+	iDOpen = aOpen;
+	iDRemove = aRemove;
+	Redraw();
+	}
+
+void CPheCatalogueView::SetUpdateCount(TInt aCount)
+	{
+	if (aCount == iUpdateCount)
+		return;
+	iUpdateCount = aCount;
+	Redraw();
+	}
+
+// the Updates tab's count: a red disc (a pill from two digits) with the number in white, at the glyph's top right
+void CPheCatalogueView::DrawBadge(const TPoint& aCentre, TInt aCount)
+	{
+	TBuf<8> num;
+	if (aCount > 99)
+		num.Copy(_L("99+"));
+	else
+		num.Num(aCount);
+	const CFont& f = *iFSmall;
+	TInt hgt = Max(Sc(18), f.HeightInPixels() + Sc(2));
+	TInt wid = Max(hgt, f.TextWidthInPixels(num) + Sc(10));
+	TRect r(TPoint(aCentre.iX - wid / 2, aCentre.iY - hgt / 2), TSize(wid, hgt));
+	iFrameGc->SetPenStyle(CGraphicsContext::ESolidPen);
+	iFrameGc->SetPenColor(TRgb(0x1c, 0x1c, 0x1c));    // a thin ring in the bar's colour keeps it off the glyph
+	iFrameGc->SetBrushStyle(CGraphicsContext::ESolidBrush);
+	iFrameGc->SetBrushColor(KRed);
+	iFrameGc->DrawRoundRect(r, TSize(hgt / 2, hgt / 2));
+	iFrameGc->SetBrushStyle(CGraphicsContext::ENullBrush);
+	Text(num, f, r.iTl.iX + (wid - f.TextWidthInPixels(num)) / 2,
+		r.iTl.iY + (hgt + f.AscentInPixels() - f.DescentInPixels()) / 2, KWhite);
+	}
+
+// the bin: a lid with its handle, a can narrowing to the bottom, two ribs (one round 2-px stroke, as the bar glyphs)
+void CPheCatalogueView::DrawBin(const TRect& aRect, TBool aPressed)
+	{
+	TRgb ink = aPressed ? KWhite : KRed;
+	iFrameGc->SetPenStyle(CGraphicsContext::ENullPen);
+	iFrameGc->SetBrushStyle(CGraphicsContext::ESolidBrush);
+	iFrameGc->SetBrushColor(aPressed ? KRed : TRgb(0xe6, 0xe6, 0xe6));
+	iFrameGc->DrawRoundRect(aRect, TSize(Sc(8), Sc(8)));
+	iFrameGc->SetBrushStyle(CGraphicsContext::ENullBrush);
+	iFrameGc->SetPenStyle(CGraphicsContext::ESolidPen);
+	TInt pw = Max(2, Sc(3));
+	iFrameGc->SetPenSize(TSize(pw, pw));
+	iFrameGc->SetPenColor(ink);
+	TPoint c = aRect.Center();
+	TInt h = Sc(12);
+	TInt lid = c.iY - h * 6 / 10;
+	iFrameGc->DrawLine(TPoint(c.iX - h, lid), TPoint(c.iX + h, lid));
+	iFrameGc->DrawLine(TPoint(c.iX - h / 3, lid), TPoint(c.iX - h / 3, lid - h / 3));
+	iFrameGc->DrawLine(TPoint(c.iX - h / 3, lid - h / 3), TPoint(c.iX + h / 3, lid - h / 3));
+	iFrameGc->DrawLine(TPoint(c.iX + h / 3, lid - h / 3), TPoint(c.iX + h / 3, lid));
+	TInt top = lid + Sc(3), bot = c.iY + h;
+	iFrameGc->DrawLine(TPoint(c.iX - h * 8 / 10, top), TPoint(c.iX - h * 6 / 10, bot));
+	iFrameGc->DrawLine(TPoint(c.iX - h * 6 / 10, bot), TPoint(c.iX + h * 6 / 10, bot));
+	iFrameGc->DrawLine(TPoint(c.iX + h * 6 / 10, bot), TPoint(c.iX + h * 8 / 10, top));
+	iFrameGc->DrawLine(TPoint(c.iX - h / 4, top + Sc(4)), TPoint(c.iX - h / 4, bot - Sc(4)));
+	iFrameGc->DrawLine(TPoint(c.iX + h / 4, top + Sc(4)), TPoint(c.iX + h / 4, bot - Sc(4)));
+	iFrameGc->SetPenSize(TSize(1, 1));
 	}
 
 void CPheCatalogueView::SetDetailsButton(const TDesC& aButton, TBool aEnabled)
@@ -766,6 +836,21 @@ void CPheCatalogueView::DrawProgress(const TRect& aRect, TInt aPermille)
 	iFrameGc->SetBrushStyle(CGraphicsContext::ESolidBrush);
 	iFrameGc->SetBrushColor(KDivider);
 	iFrameGc->DrawRoundRect(aRect, TSize(aRect.Height() / 2, aRect.Height() / 2));
+	if (aPermille == KProgressBusy)                 // no percentage (an install, a download of unknown size): a third of
+		{                                           // the track sweeps across it
+		TInt seg = aRect.Width() / 3;
+		TInt span = aRect.Width() + seg;
+		TInt x0 = aRect.iTl.iX - seg + span * iBusyPhase / 1000;
+		TRect r(Max(x0, aRect.iTl.iX), aRect.iTl.iY, Min(x0 + seg, aRect.iBr.iX), aRect.iBr.iY);
+		if (r.Width() > aRect.Height() / 2)
+			{
+			iFrameGc->SetBrushColor(KBlue);
+			iFrameGc->DrawRoundRect(r, TSize(aRect.Height() / 2, aRect.Height() / 2));
+			}
+		iFrameGc->SetBrushStyle(CGraphicsContext::ENullBrush);
+		iFrameGc->SetPenStyle(CGraphicsContext::ESolidPen);
+		return;
+		}
 	TInt w = aRect.Width() * Min(Max(aPermille, 0), 1000) / 1000;
 	if (w > aRect.Height())
 		{
@@ -915,14 +1000,17 @@ static const TRgb KBarTop(0x42, 0x42, 0x42);
 static const TRgb KBarBottom(0x1c, 0x1c, 0x1c);
 static const TRgb KBarIcon(0xd2, 0xd2, 0xd2);
 static const TRgb KBarActive(0x7c, 0xc2, 0xff);
-enum { EIconBack, EIconExit, EIconHome, EIconCategories, EIconSearch, EIconMyApps, EIconOptions };
+enum { EIconBack, EIconExit, EIconHome, EIconCategories, EIconSearch, EIconMyApps, EIconUpdates, EIconOptions };
+static const TInt KBarCells = 7;                    // back/exit, the five tabs, options
+static const TInt KOptionsCell = KBarCells - 1;
+static const TInt KUpdatesTab = 4;
 
 TInt CPheCatalogueView::BarCell(const TPoint& aPos) const
 	{
 	TInt w = Rect().Width();
 	if (aPos.iY < ViewH() || aPos.iY >= Rect().Height() || aPos.iX < 0 || aPos.iX >= w)
 		return -1;
-	return Min(5, aPos.iX * 6 / w);
+	return Min(KOptionsCell, aPos.iX * KBarCells / w);
 	}
 
 void CPheCatalogueView::SetTab(TInt aTab)
@@ -970,7 +1058,7 @@ void CPheCatalogueView::BarAction(TInt aCell)
 			iUi.UiExit();
 		return;
 		}
-	if (aCell == 5)                                 // the options menu
+	if (aCell == KOptionsCell)                      // the options menu
 		{
 		iUi.UiOptions();
 		return;
@@ -1058,6 +1146,17 @@ void CPheCatalogueView::DrawBarIcon(TInt aKind, const TPoint& aC, TRgb aColour)
 			gc.DrawRect(TRect(TPoint(x - d / 2, y + i * h * 7 / 10 - d / 2), TSize(d, d)));
 		break;
 		}
+	case EIconUpdates:
+		{
+		TInt q = h * 6 / 10;
+		gc.DrawLine(TPoint(x, y - h), TPoint(x, y + h / 3));
+		gc.DrawLine(TPoint(x, y + h / 3), TPoint(x - q, y + h / 3 - q));
+		gc.DrawLine(TPoint(x, y + h / 3), TPoint(x + q, y + h / 3 - q));
+		gc.DrawLine(TPoint(x - h, y + h / 3), TPoint(x - h, y + h));
+		gc.DrawLine(TPoint(x - h, y + h), TPoint(x + h, y + h));
+		gc.DrawLine(TPoint(x + h, y + h), TPoint(x + h, y + h / 3));
+		break;
+		}
 	case EIconMyApps:
 		{
 		TInt step = h * 7 / 10;
@@ -1084,12 +1183,12 @@ void CPheCatalogueView::DrawBar()
 	FillGradient(TRect(0, top, w, bottom), KBarTop, KBarBottom);
 	iFrameGc->SetPenColor(TRgb(0x0c, 0x0c, 0x0c));
 	iFrameGc->DrawLine(TPoint(0, top), TPoint(w, top));
-	for (TInt i = 0; i < 6; ++i)
+	for (TInt i = 0; i < KBarCells; ++i)
 		{
-		TInt x0 = i * w / 6, x1 = (i + 1) * w / 6;
+		TInt x0 = i * w / KBarCells, x1 = (i + 1) * w / KBarCells;
 		TRect cell(x0, top + 2, x1, bottom);
 		TBool pressed = (iBarDown == i);
-		TBool active = (i > 0 && i < 5 && i - 1 == iTab && iMode == EList);
+		TBool active = (i > 0 && i < KOptionsCell && i - 1 == iTab && iMode == EList);
 		if (pressed)
 			FillGradient(cell, TRgb(0x30, 0x91, 0xe2), TRgb(0x1a, 0x85, 0xde));
 		else if (active)
@@ -1100,14 +1199,16 @@ void CPheCatalogueView::DrawBar()
 			iFrameGc->DrawLine(TPoint(x0, top + 3), TPoint(x1, top + 3));
 			iFrameGc->SetPenSize(TSize(1, 1));
 			}
-		TInt kind = i == 0 ? (AtRoot() ? EIconExit : EIconBack) : (i == 5 ? EIconOptions : EIconHome + (i - 1));
-		DrawBarIcon(kind, TPoint((x0 + x1) / 2, top + 2 + (bottom - top - 2) / 2),
-			pressed ? KWhite : (active ? KBarActive : KBarIcon));
+		TInt kind = i == 0 ? (AtRoot() ? EIconExit : EIconBack) : (i == KOptionsCell ? EIconOptions : EIconHome + (i - 1));
+		TPoint c((x0 + x1) / 2, top + 2 + (bottom - top - 2) / 2);
+		DrawBarIcon(kind, c, pressed ? KWhite : (active ? KBarActive : KBarIcon));
+		if (i - 1 == KUpdatesTab && iUpdateCount > 0)
+			DrawBadge(TPoint(c.iX + Sc(13), c.iY - Sc(11)), iUpdateCount);
 		}
 	// dividers: back/exit | tabs | options
 	iFrameGc->SetPenColor(TRgb(0x0c, 0x0c, 0x0c));
-	iFrameGc->DrawLine(TPoint(w / 6, top + 4), TPoint(w / 6, bottom));
-	iFrameGc->DrawLine(TPoint(5 * w / 6, top + 4), TPoint(5 * w / 6, bottom));
+	iFrameGc->DrawLine(TPoint(w / KBarCells, top + 4), TPoint(w / KBarCells, bottom));
+	iFrameGc->DrawLine(TPoint(KOptionsCell * w / KBarCells, top + 4), TPoint(KOptionsCell * w / KBarCells, bottom));
 	}
 
 void CPheCatalogueView::DrawEmpty(const TDesC& aMessage, TBool aError, TBool aButton)
@@ -1365,7 +1466,25 @@ void CPheCatalogueView::RenderDetails()
 	if (iDButton)
 		DrawButton(btn, *iDButton, iDButtonOn);
 	y += Sc(60);
-	if (iDProgress >= 0)
+	iDOpenRect = iDRemoveRect = TRect();
+	if (iDOpen || iDRemove)
+		{
+		TInt bh = Sc(48);
+		TInt right = w - iMargin;
+		if (iDRemove)
+			{
+			iDRemoveRect = TRect(TPoint(right - bh, y), TSize(bh, bh));
+			DrawBin(iDRemoveRect, iDExtraDown == 2);
+			right -= bh + Sc(10);
+			}
+		if (iDOpen)
+			{
+			iDOpenRect = TRect(TPoint(iMargin, y), TPoint(right, y + bh));
+			DrawButton(iDOpenRect, _L("Open"), iDExtraDown != 1);
+			}
+		y += bh + Sc(12);
+		}
+	if (iDProgress >= 0 || iDProgress == KProgressBusy)
 		{
 		DrawProgress(TRect(TPoint(iMargin, y + Sc(2)), TSize(w - 2 * iMargin, Sc(8))), iDProgress);
 		y += Sc(22);
@@ -1522,6 +1641,12 @@ void CPheCatalogueView::Tick()
 		}
 	if (iFlash)
 		keep = ETrue;
+	if (iMode == EDetails && iDProgress == KProgressBusy)
+		{
+		keep = ETrue;
+		iBusyPhase = (iBusyPhase + dt * 1000 / 1400) % 1000;   // one sweep in 1.4 s
+		dirty = ETrue;
+		}
 	if (iLoad == ELoading)
 		{
 		keep = ETrue;
@@ -1567,6 +1692,13 @@ void CPheCatalogueView::PointerDown(const TPoint& aPos)
 	iSampleCount = 1;
 	iRetryDown = iRetryRect.Contains(aPos);
 	iDButtonDown = (iMode == EDetails && iDButtonOn && iDButtonRect.Contains(aPos));
+	iDExtraDown = 0;
+	if (iMode == EDetails && iDOpen && iDOpenRect.Contains(aPos))
+		iDExtraDown = 1;
+	else if (iMode == EDetails && iDRemove && iDRemoveRect.Contains(aPos))
+		iDExtraDown = 2;
+	if (iDExtraDown)
+		Redraw();
 	StartTicking();
 	}
 
@@ -1591,6 +1723,11 @@ void CPheCatalogueView::PointerDrag(const TPoint& aPos)
 		iPressRow = -1;
 		iDButtonDown = EFalse;
 		iRetryDown = EFalse;
+		if (iDExtraDown)
+			{
+			iDExtraDown = 0;
+			Redraw();
+			}
 		}
 	if (iDragging)
 		{
@@ -1710,6 +1847,22 @@ void CPheCatalogueView::PointerUp(const TPoint& aPos)
 			iUi.UiAction(iDetailRow);
 			return;
 			}
+		TInt extra = iDExtraDown;
+		iDExtraDown = 0;
+		if (extra == 1 && iDOpen && iDOpenRect.Contains(aPos))
+			{
+			Redraw();
+			iUi.UiOpenApp();
+			return;
+			}
+		if (extra == 2 && iDRemove && iDRemoveRect.Contains(aPos))
+			{
+			Redraw();
+			iUi.UiUninstall();
+			return;
+			}
+		if (extra)
+			Redraw();
 		if (aPos.iY < iHeaderH && !caught)
 			{
 			iUi.UiBack();

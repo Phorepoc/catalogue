@@ -34,6 +34,6 @@ MW_LAYER_SYSTEMINCLUDE
 
 LIBRARY			fbscli.lib bitgdi.lib gdi.lib ws32.lib imageconversion.lib hal.lib
 LIBRARY			euser.lib apparc.lib cone.lib eikcore.lib eikcoctl.lib eikctl.lib eikdlg.lib avkon.lib aknskins.lib
-LIBRARY			efsrv.lib bafl.lib charconv.lib esock.lib http.lib inetprotutil.lib hash.lib swinstcli.lib
+LIBRARY			efsrv.lib bafl.lib charconv.lib esock.lib http.lib inetprotutil.lib hash.lib swinstcli.lib apgrfx.lib
 
 EPOCSTACKSIZE	0x8000

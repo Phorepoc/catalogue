@@ -150,3 +150,22 @@ RESOURCE DIALOG r_phestore_add_source_query
 // third resource (CEikAppUi reads it by position)
 RESOURCE TBUF r_phestore_welcome { buf = qtn_phestore_welcome; }
 RESOURCE TBUF r_phestore_welcome_sub { buf = qtn_phestore_welcome_sub; }
+
+// the bin on a details page: "Uninstall <name>?" (Yes / No)
+RESOURCE DIALOG r_phestore_confirm_query
+	{
+	flags = EGeneralQueryFlags;
+	buttons = R_AVKON_SOFTKEYS_YES_NO;
+	items =
+		{
+		DLG_LINE
+			{
+			type = EAknCtQuery;
+			id = EGeneralQuery;
+			control = AVKON_CONFIRMATION_QUERY
+				{
+				layout = EConfirmationQueryLayout;
+				};
+			}
+		};
+	}
