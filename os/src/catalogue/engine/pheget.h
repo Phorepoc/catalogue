@@ -17,6 +17,7 @@
 #include <http/mhttptransactioncallback.h>
 
 class CPheJson;
+namespace SwiUI { class RSWInstSilentLauncher; }
 
 _LIT(KPheGetDefaultIndex, "https://phorepoc.github.io/index/index.json");
 _LIT(KPheGetDeviceFile, "z:\\resource\\phorepoc\\device.txt");   // board=<name> / arch=<arm|x32>, from the adaptation
@@ -51,7 +52,7 @@ class MPheGetObserver
 	{
 public:
 	virtual void PheGetLog(const TDesC8& aLine) = 0;              // progress, one line
-	virtual void PheGetProgress(TInt aDone, TInt aTotal) = 0;     // bytes of the current download (aTotal 0 = unknown)
+	virtual void PheGetProgress(TInt aDone, TInt aTotal) = 0;     // bytes of the current download (aTotal 0 = unknown, -1 = installing)
 	};
 
 class CPheGet : public CBase, public MHTTPTransactionCallback
@@ -128,6 +129,7 @@ private:
 	void WriteSourcesL(const CDesCArray& aSources, TBool aDefaultOff);
 	void LoadIndexL(const TDesC& aLocation, TBool aCachedOnly);
 	void FetchL(const TDesC& aLocation, const TDesC& aFile);  // URL or local path -> aFile
+	TInt SilentInstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, const TDesC& aFile, const TDesC8& aOptions);
 	void HttpGetL(const TDesC8& aUrl, const TDesC& aFile);
 	void OpenNetworkL();
 	TInt StartConnection();

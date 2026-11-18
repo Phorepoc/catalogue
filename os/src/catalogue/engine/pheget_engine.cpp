@@ -904,6 +904,40 @@ TBool CPheGet::NeedsNewerSystemL(const TPheGetItem& aItem)
 	return newer;
 	}
 
+// SWI's silent install of a large package takes tens of seconds (it unpacks, hashes and copies every file). The
+// synchronous SilentInstall() is a blocking SendReceive: a UI thread that called it answered no event meanwhile and
+// the view server's watchdog ended it (ViewSrv 14, Catalogue updating the NetSurf engine). The asynchronous form with
+// a nested scheduler, as for the download and the connection start, keeps that thread serving its events.
+class CPheSwiInstall : public CActive
+	{
+public:
+	CPheSwiInstall(SwiUI::RSWInstSilentLauncher& aLauncher)
+		: CActive(CActive::EPriorityStandard), iLauncher(aLauncher) { CActiveScheduler::Add(this); }
+	~CPheSwiInstall() { Cancel(); }
+	TInt Run(const TDesC& aFile, const TDesC8& aOptions)
+		{
+		iLauncher.SilentInstall(iStatus, aFile, aOptions);
+		SetActive();
+		iWait.Start();
+		return iStatus.Int();
+		}
+private:
+	void RunL() { iWait.AsyncStop(); }
+	void DoCancel() { iLauncher.CancelAsyncRequest(SwiUI::ERequestSilentInstall); }
+	SwiUI::RSWInstSilentLauncher& iLauncher;
+	CActiveSchedulerWait iWait;
+	};
+
+TInt CPheGet::SilentInstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, const TDesC& aFile, const TDesC8& aOptions)
+	{
+	CPheSwiInstall* installer = new CPheSwiInstall(aLauncher);
+	if (!installer)
+		return KErrNoMemory;
+	TInt r = installer->Run(aFile, aOptions);
+	delete installer;
+	return r;
+	}
+
 TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 	{
 	TPtrC8 id = aItem.Id();
@@ -1030,7 +1064,8 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 	TInt err = launcher.Connect();
 	if (err == KErrNone)
 		{
-		err = launcher.SilentInstall(file, pckg);
+		iObserver.PheGetProgress(0, -1);           // aTotal -1: the download is done, SWI installs now
+		err = SilentInstallAsync(launcher, file, pckg);
 		launcher.Close();
 		}
 	if (err == KErrNone)

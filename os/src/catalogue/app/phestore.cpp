@@ -95,6 +95,13 @@ public:
 	void PheGetLog(const TDesC8& aLine) { RDebug::Printf("PH: [phestore] %S", &aLine); }
 	void PheGetProgress(TInt aDone, TInt aTotal)
 		{
+		if (iView->Mode() == CPheCatalogueView::EDetails && aTotal < 0)
+			{
+			iLastProgress = -1;
+			_LIT(KInstalling, "Installing");
+			iView->SetDetailsStatus(KInstalling, EFalse, -1);
+			return;
+			}
 		if (iView->Mode() == CPheCatalogueView::EDetails && aTotal > 0)
 			{
 			TInt p = TInt(TInt64(aDone) * 1000 / aTotal);
