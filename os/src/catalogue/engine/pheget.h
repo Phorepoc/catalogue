@@ -90,6 +90,14 @@ public:
 	// Downloads (or reuses a cached copy with the right hash), verifies and installs silently; returns the
 	// installer's result.
 	TInt InstallL(const TPheGetItem& aItem, TChar aDrive);
+	// The download half of InstallL: the release's package into the cache (or the cached copy), its hash checked;
+	// aFile = the package. KErrNone = ready to install. Leaves on a failed fetch.
+	TInt FetchPackageL(const TPheGetItem& aItem, TFileName& aFile);
+	// The SIS package UID of an installed item: recorded at install (uids.txt), else read from its cached package;
+	// 0 = unknown.
+	TUint32 PackageUidL(const TPheGetItem& aItem);
+	// Removes an installed item silently (SWI, by its package UID) and its install record; the installer's result.
+	TInt UninstallL(const TPheGetItem& aItem);
 	// The installed tag of an item (recorded by InstallL), or empty.
 	void InstalledTagL(const TDesC8& aId, TDes8& aTag);
 	// The same for an item, and with no record but the image carrying its group (its ROM stub, z:\system\install\<group>_stub.sis,
@@ -130,6 +138,9 @@ private:
 	void LoadIndexL(const TDesC& aLocation, TBool aCachedOnly);
 	void FetchL(const TDesC& aLocation, const TDesC& aFile);  // URL or local path -> aFile
 	TInt SilentInstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, const TDesC& aFile, const TDesC8& aOptions);
+	TInt SilentUninstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, TUid aUid, const TDesC8& aOptions);
+	TUint32 SisUid(const TDesC& aFile);
+	void SetLineL(const TDesC& aName, const TDesC8& aId, const TDesC8& aValue);   // aValue empty = remove the id
 	void HttpGetL(const TDesC8& aUrl, const TDesC& aFile);
 	void OpenNetworkL();
 	TInt StartConnection();

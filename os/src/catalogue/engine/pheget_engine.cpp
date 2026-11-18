@@ -916,16 +916,28 @@ public:
 	~CPheSwiInstall() { Cancel(); }
 	TInt Run(const TDesC& aFile, const TDesC8& aOptions)
 		{
+		iRequest = SwiUI::ERequestSilentInstall;
 		iLauncher.SilentInstall(iStatus, aFile, aOptions);
+		return Wait();
+		}
+	TInt RunUninstall(TUid aUid, const TDesC8& aOptions)
+		{
+		iRequest = SwiUI::ERequestSilentUninstall;
+		iLauncher.SilentUninstall(iStatus, aUid, aOptions, SwiUI::KSisxMimeType);
+		return Wait();
+		}
+private:
+	TInt Wait()
+		{
 		SetActive();
 		iWait.Start();
 		return iStatus.Int();
 		}
-private:
 	void RunL() { iWait.AsyncStop(); }
-	void DoCancel() { iLauncher.CancelAsyncRequest(SwiUI::ERequestSilentInstall); }
+	void DoCancel() { iLauncher.CancelAsyncRequest(iRequest); }
 	SwiUI::RSWInstSilentLauncher& iLauncher;
 	CActiveSchedulerWait iWait;
+	TInt iRequest;
 	};
 
 TInt CPheGet::SilentInstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, const TDesC& aFile, const TDesC8& aOptions)
@@ -936,6 +948,105 @@ TInt CPheGet::SilentInstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, const 
 	TInt r = installer->Run(aFile, aOptions);
 	delete installer;
 	return r;
+	}
+
+TInt CPheGet::SilentUninstallAsync(SwiUI::RSWInstSilentLauncher& aLauncher, TUid aUid, const TDesC8& aOptions)
+	{
+	CPheSwiInstall* op = new CPheSwiInstall(aLauncher);
+	if (!op)
+		return KErrNoMemory;
+	TInt r = op->RunUninstall(aUid, aOptions);
+	delete op;
+	return r;
+	}
+
+// a SIS file's package UID: its third UID (the file starts UID1 0x10201A7A, UID2, UID3 = the package), 0 = none
+TUint32 CPheGet::SisUid(const TDesC& aFile)
+	{
+	RFile f;
+	if (f.Open(iFs, aFile, EFileRead | EFileShareReadersOnly) != KErrNone)
+		return 0;
+	TBuf8<12> head;
+	TInt r = f.Read(head);
+	f.Close();
+	if (r != KErrNone || head.Length() < 12)
+		return 0;
+	TUint32 uid1 = head[0] | (head[1] << 8) | (head[2] << 16) | (TUint32(head[3]) << 24);
+	if (uid1 != 0x10201A7A)
+		return 0;
+	return head[8] | (head[9] << 8) | (head[10] << 16) | (TUint32(head[11]) << 24);
+	}
+
+TUint32 CPheGet::PackageUidL(const TPheGetItem& aItem)
+	{
+	TFileName list(KPheGetDir);
+	list.Append(_L("uids.txt"));
+	HBufC8* text = NULL;
+	TRAP_IGNORE(text = ReadFileL(iFs, list));
+	TUint32 uid = 0;
+	if (text)
+		{
+		TLex8 lex(*text);
+		while (!lex.Eos())
+			{
+			TPtrC8 id = lex.NextToken();
+			TPtrC8 value = lex.NextToken();
+			if (id.Length() && id == aItem.Id())
+				{
+				TLex8 v(value);
+				TUint32 u = 0;
+				if (v.Val(u, EHex) == KErrNone)
+					uid = u;
+				}
+			}
+		delete text;
+		}
+	if (uid || !aItem.iRelease)
+		return uid;
+	// installed before uids.txt existed: the cached package of its release (the same package UID across versions)
+	TPtrC8 asset = aItem.iRelease->GetStr(_L8("asset"));
+	if (asset.Length() == 0 || asset.Length() > 100)
+		return 0;
+	TFileName file(KPheGetDownloads);
+	TBuf<100> asset16;
+	asset16.Copy(asset);
+	file.Append(asset16);
+	return SisUid(file);
+	}
+
+TInt CPheGet::UninstallL(const TPheGetItem& aItem)
+	{
+	TPtrC8 id = aItem.Id();
+	TUint32 uid = PackageUidL(aItem);
+	if (!uid)
+		{
+		Log(_L8("%S: package UID unknown, cannot uninstall"), &id);
+		return KErrNotFound;
+		}
+	SwiUI::TUninstallOptions opts;
+	opts.iKillApp = SwiUI::EPolicyAllowed;
+	opts.iBreakDependency = SwiUI::EPolicyAllowed;
+	SwiUI::TUninstallOptionsPckg pckg(opts);
+	SwiUI::RSWInstSilentLauncher launcher;
+	TInt err = launcher.Connect();
+	if (err == KErrNone)
+		{
+		iObserver.PheGetProgress(0, -2);           // aTotal -2: SWI removes the package now
+		err = SilentUninstallAsync(launcher, TUid::Uid(uid), pckg);
+		launcher.Close();
+		}
+	if (err == KErrNone)
+		{
+		TFileName list(KPheGetDir);
+		list.Append(_L("installed.txt"));
+		SetLineL(list, id, KNullDesC8);
+		iInstalledLoaded = EFalse;
+		list = KPheGetDir;
+		list.Append(_L("uids.txt"));
+		SetLineL(list, id, KNullDesC8);
+		}
+	Log(_L8("%S (0x%08x): %s (%d)"), &id, uid, err == KErrNone ? "UNINSTALLED" : "UNINSTALL FAILED", err);
+	return err;
 	}
 
 TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
@@ -998,6 +1109,56 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 				}
 			}
 		}
+	TFileName file;
+	TInt ferr = FetchPackageL(aItem, file);
+	if (ferr != KErrNone)
+		return ferr;
+	TPtrC8 tag = aItem.iRelease->GetStr(_L8("tag"));
+	SwiUI::TInstallOptions opts;
+	opts.iUpgrade = SwiUI::EPolicyAllowed;
+	opts.iOptionalItems = SwiUI::EPolicyAllowed;
+	opts.iOCSP = SwiUI::EPolicyNotAllowed;
+	opts.iIgnoreOCSPWarnings = SwiUI::EPolicyAllowed;
+	opts.iUntrusted = SwiUI::EPolicyAllowed;
+	opts.iPackageInfo = SwiUI::EPolicyAllowed;
+	opts.iCapabilities = SwiUI::EPolicyAllowed;
+	opts.iKillApp = SwiUI::EPolicyAllowed;
+	opts.iOverwrite = SwiUI::EPolicyAllowed;
+	opts.iDownload = SwiUI::EPolicyAllowed;
+	opts.iDrive = aDrive;
+	opts.iUsePhoneLang = ETrue;
+	opts.iUpgradeData = SwiUI::EPolicyAllowed;
+	SwiUI::TInstallOptionsPckg pckg(opts);
+	SwiUI::RSWInstSilentLauncher launcher;
+	TInt err = launcher.Connect();
+	if (err == KErrNone)
+		{
+		iObserver.PheGetProgress(0, -1);           // aTotal -1: the download is done, SWI installs now
+		err = SilentInstallAsync(launcher, file, pckg);
+		launcher.Close();
+		}
+	if (err == KErrNone)
+		{
+		RecordInstalledL(id, tag);
+		TUint32 uid = SisUid(file);
+		if (uid)
+			{
+			TBuf8<12> hex;
+			hex.Format(_L8("%x"), uid);
+			TFileName list(KPheGetDir);
+			list.Append(_L("uids.txt"));
+			TRAP_IGNORE(SetLineL(list, id, hex));
+			}
+		}
+	Log(_L8("%S %S: %s (%d)"), &id, &tag, err == KErrNone ? "INSTALLED" : "FAILED", err);
+	return err;
+	}
+
+TInt CPheGet::FetchPackageL(const TPheGetItem& aItem, TFileName& aFile)
+	{
+	TPtrC8 id = aItem.Id();
+	if (!aItem.iRelease)
+		return KErrNotFound;
 	const CPheJson& rel = *aItem.iRelease;
 	TPtrC8 asset = rel.GetStr(_L8("asset"));
 	TPtrC8 url = rel.GetStr(_L8("url"));
@@ -1045,33 +1206,8 @@ TInt CPheGet::InstallL(const TPheGetItem& aItem, TChar aDrive)
 			}
 		}
 
-	SwiUI::TInstallOptions opts;
-	opts.iUpgrade = SwiUI::EPolicyAllowed;
-	opts.iOptionalItems = SwiUI::EPolicyAllowed;
-	opts.iOCSP = SwiUI::EPolicyNotAllowed;
-	opts.iIgnoreOCSPWarnings = SwiUI::EPolicyAllowed;
-	opts.iUntrusted = SwiUI::EPolicyAllowed;
-	opts.iPackageInfo = SwiUI::EPolicyAllowed;
-	opts.iCapabilities = SwiUI::EPolicyAllowed;
-	opts.iKillApp = SwiUI::EPolicyAllowed;
-	opts.iOverwrite = SwiUI::EPolicyAllowed;
-	opts.iDownload = SwiUI::EPolicyAllowed;
-	opts.iDrive = aDrive;
-	opts.iUsePhoneLang = ETrue;
-	opts.iUpgradeData = SwiUI::EPolicyAllowed;
-	SwiUI::TInstallOptionsPckg pckg(opts);
-	SwiUI::RSWInstSilentLauncher launcher;
-	TInt err = launcher.Connect();
-	if (err == KErrNone)
-		{
-		iObserver.PheGetProgress(0, -1);           // aTotal -1: the download is done, SWI installs now
-		err = SilentInstallAsync(launcher, file, pckg);
-		launcher.Close();
-		}
-	if (err == KErrNone)
-		RecordInstalledL(id, tag);
-	Log(_L8("%S %S: %s (%d)"), &id, &tag, err == KErrNone ? "INSTALLED" : "FAILED", err);
-	return err;
+	aFile = file;
+	return KErrNone;
 	}
 
 // installed.txt: one "<id> <tag>" line per installed item
@@ -1120,31 +1256,40 @@ void CPheGet::RecordInstalledL(const TDesC8& aId, const TDesC8& aTag)
 	iInstalledLoaded = EFalse;                  // (InstalledTagL rereads)
 	TFileName list(KPheGetDir);
 	list.Append(_L("installed.txt"));
+	SetLineL(list, aId, aTag);
+	}
+
+// one "<id> <value>" line per id (installed.txt, uids.txt): sets aId's line, or removes it (aValue empty)
+void CPheGet::SetLineL(const TDesC& aName, const TDesC8& aId, const TDesC8& aValue)
+	{
 	HBufC8* text = NULL;
-	TRAPD(err, text = ReadFileL(iFs, list));
+	TRAPD(err, text = ReadFileL(iFs, aName));
 	if (err != KErrNone)
 		text = HBufC8::NewL(0);
 	CleanupStack::PushL(text);
-	HBufC8* out = HBufC8::NewLC(text->Length() + aId.Length() + aTag.Length() + 16);
+	HBufC8* out = HBufC8::NewLC(text->Length() + aId.Length() + aValue.Length() + 16);
 	TPtr8 o = out->Des();
 	TLex8 lex(*text);
 	while (!lex.Eos())
 		{
 		TPtrC8 id = lex.NextToken();
-		TPtrC8 tag = lex.NextToken();
+		TPtrC8 value = lex.NextToken();
 		if (id.Length() == 0 || id == aId)
 			continue;
 		o.Append(id);
 		o.Append(' ');
-		o.Append(tag);
+		o.Append(value);
 		o.Append('\n');
 		}
-	o.Append(aId);
-	o.Append(' ');
-	o.Append(aTag);
-	o.Append('\n');
+	if (aValue.Length())
+		{
+		o.Append(aId);
+		o.Append(' ');
+		o.Append(aValue);
+		o.Append('\n');
+		}
 	RFile f;
-	User::LeaveIfError(f.Replace(iFs, list, EFileWrite));
+	User::LeaveIfError(f.Replace(iFs, aName, EFileWrite));
 	CleanupClosePushL(f);
 	User::LeaveIfError(f.Write(o));
 	CleanupStack::PopAndDestroy(3, text);
